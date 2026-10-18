@@ -1,0 +1,70 @@
+--- verify.hnl — the differential suite as a runnable program: each
+--- lib-tensor op compared against host-tensor's native impl on shared
+--- fixtures. Prints a `[{name, ok}]` verdict list.
+---
+--- Run through a host with the `tensor` module composed — catopt's
+--- `CatoptKit` is the first such runtime:
+---
+---   <catopt>/target/debug/hnl-run --project <this repo> verify.hnl
+---
+--- (`--project .` resolves `from "host-tensor"`/`from "lib-tensor"`
+--- through this repo's `.handl.toml`.) `hnl test` does not compose
+--- host modules, so `src/lib_tensor.test.hnl` is the spec form and
+--- this file the executable one.
+
+do {
+  from "host-tensor" import tensor
+  from "lib-tensor" import ltensor as lt
+
+  -- `check(name, a, b)` — a verdict record instead of `assert`, so a
+  -- mismatch reports rather than aborts.
+  check := (name, a, b) ~> if a == b { { name: name, ok: true } } else {
+    { name: name, ok: false, lib: a, host: b }
+  }
+  eq := (name, lt_t, t_t) ~> check(name, tensor.to_list(lt_t), tensor.to_list(t_t))
+
+  x23 := tensor.from_list([[1, 2, 3], [4, 5, 6]])
+  x23b := tensor.from_list([10, 20, 30])
+  conv_x := tensor.from_list([[[[1, 2]], [[3, 4]]]])
+  conv_w := tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]])
+  bn_g := tensor.from_list([1, 2])
+  bn_b := tensor.from_list([0, 1])
+  bn_m := tensor.from_list([0, 3])
+  bn_v := tensor.from_list([1, 4])
+  grad := tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]])
+
+  [
+    eq("zeros", lt.zeros([2, 2]), tensor.zeros([2, 2])),
+    eq("ones", lt.ones([3]), tensor.ones([3])),
+    eq("from_list", lt.from_list([[1, 2], [3, 4]]), tensor.from_list([[1, 2], [3, 4]])),
+    check("to_list", lt.to_list(x23), tensor.to_list(x23)),
+    check("shape", lt.shape(x23), tensor.shape(x23)),
+    eq("add", lt.add(x23, x23b), tensor.add(x23, x23b)),
+    eq("add_outer", lt.add(tensor.from_list([[1], [10]]), tensor.from_list([[100, 200, 300]])), tensor.add(tensor.from_list([[1], [10]]), tensor.from_list([[100, 200, 300]]))),
+    eq("mul", lt.mul(x23, tensor.from_list([2, 3, 4])), tensor.mul(x23, tensor.from_list([2, 3, 4]))),
+    eq("sub", lt.sub(tensor.from_list([[10, 20], [30, 40]]), tensor.from_list([[1], [2]])), tensor.sub(tensor.from_list([[10, 20], [30, 40]]), tensor.from_list([[1], [2]]))),
+    eq("div", lt.div(tensor.from_list([[8, 9], [10, 12]]), tensor.from_list([[2, 3]])), tensor.div(tensor.from_list([[8, 9], [10, 12]]), tensor.from_list([[2, 3]]))),
+    eq("add_wire", lt.add(lt.from_list([[1, 2, 3], [4, 5, 6]]), lt.from_list([10, 20, 30])), tensor.add(x23, x23b)),
+    eq("matmul", lt.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]])), tensor.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]))),
+    eq("matmul_batched", lt.matmul(tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]), tensor.from_list([[[3], [4]], [[5], [6]]])), tensor.matmul(tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]), tensor.from_list([[[3], [4]], [[5], [6]]]))),
+    eq("matmul_batch_broadcast", lt.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]])), tensor.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]))),
+    eq("conv2d", lt.conv2d(conv_x, conv_w), tensor.conv2d(conv_x, conv_w)),
+    eq("conv2d_padding", lt.conv2d(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]]), null, null, 1), tensor.conv2d(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]]), null, null, 1)),
+    eq("conv2d_stride_bias", lt.conv2d(tensor.from_list([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), tensor.from_list([[[[1, 1], [1, 1]]]]), tensor.from_list([10]), 2), tensor.conv2d(tensor.from_list([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), tensor.from_list([[[[1, 1], [1, 1]]]]), tensor.from_list([10]), 2)),
+    eq("conv2d_groups", lt.conv2d(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]]], [[[2]]]]), null, null, null, 2), tensor.conv2d(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]]], [[[2]]]]), null, null, null, 2)),
+    eq("max_pool", lt.max_pool(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), 2), tensor.max_pool(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), 2)),
+    eq("max_pool_stride", lt.max_pool(tensor.from_list([[[[1, 5, 2], [3, 4, 6]]]]), [2, 2], [1, 1]), tensor.max_pool(tensor.from_list([[[[1, 5, 2], [3, 4, 6]]]]), [2, 2], [1, 1])),
+    eq("batch_norm", lt.batch_norm(conv_x, bn_g, bn_b, bn_m, bn_v, 0), tensor.batch_norm(conv_x, bn_g, bn_b, bn_m, bn_v, 0)),
+    eq("batch_norm_eps", lt.batch_norm(conv_x, bn_g, bn_b, bn_m, bn_v), tensor.batch_norm(conv_x, bn_g, bn_b, bn_m, bn_v)),
+    eq("reshape", lt.reshape(x23, [3, 2]), tensor.reshape(x23, [3, 2])),
+    eq("transpose", lt.transpose(x23, 0, 1), tensor.transpose(x23, 0, 1)),
+    eq("transpose3", lt.transpose(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), 1, 2), tensor.transpose(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), 1, 2)),
+    eq("concat0", lt.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6]])], 0), tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6]])], 0)),
+    eq("concat1", lt.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5], [6]])], 1), tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5], [6]])], 1)),
+    check("derive", lt.derive("batch_norm"), tensor.derive("batch_norm")),
+    check("derive_null", lt.derive("tensor.conv2d"), tensor.derive("tensor.conv2d")),
+    check("bn_bwd_beta", tensor.to_list((lt.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).beta), tensor.to_list((tensor.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).beta)),
+    check("bn_bwd_input", tensor.to_list((lt.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).input), tensor.to_list((tensor.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).input)),
+    check("bn_bwd_gamma", tensor.to_list((lt.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).gamma), tensor.to_list((tensor.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).gamma))
+  ]
+}

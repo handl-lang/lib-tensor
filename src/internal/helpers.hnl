@@ -1,0 +1,121 @@
+--- internal/helpers.hnl — pure-handl list/odometer machinery for the
+--- lib-tensor op specs.
+---
+--- Every op below is a total pure function over plain handl values
+--- (lists, numbers, records) — no `cap`/`op` declarations, no host
+--- calls. These are the building blocks the transparent tensor ops
+--- share: list utilities, the row-major stride/unravel pair that maps a
+--- flat output position to an index tuple, and the `die` error arrow
+--- (a deliberately unmatched `match` — the eval engine's `match_fail`),
+--- which is how a spec rejects invalid input where the Rust impls raise
+--- `EvalError`s. Error *messages* do not cross — the boundary reports
+--- "match: no arm matched" — so differential tests assert value
+--- equality on the accepting path only.
+
+--- Raise an eval error: the scrutinee `null` matches no list arm, so the
+--- engine reports `match: no arm matched`. The message is documentation;
+--- the engine does not carry it.
+export die := (msg) ~> match msg {
+  _: match null { [x]: x }
+}
+
+--- Length of a list.
+export len := (xs) ~> while { xs: xs, n: 0 } {
+  (xs, n) ~> match xs {
+    []: { out: n },
+    [_, ...t]: { state: { xs: t, n: n + 1 } }
+  }
+}
+
+--- `take(xs, n)` — the first `n` elements (`n >= len(xs)` takes all).
+export take := (xs, n) ~> while { xs: xs, n: n, acc: [] } {
+  (xs, n, acc) ~> match xs {
+    []: { out: acc },
+    [x, ...t]: if n > 0 {
+      { state: { xs: t, n: n - 1, acc: [...acc, x] } }
+    } else { { out: acc } }
+  }
+}
+
+--- `drop(xs, n)` — `xs` without its first `n` elements.
+export drop := (xs, n) ~> while { xs: xs, n: n } {
+  (xs, n) ~> match xs {
+    []: { out: [] },
+    [_, ...t]: if n > 0 {
+      { state: { xs: t, n: n - 1 } }
+    } else { { out: xs } }
+  }
+}
+
+--- `slice(xs, i, n)` — the `n` elements starting at index `i`.
+export slice := (xs, i, n) ~> take(drop(xs, i), n)
+
+--- `set(xs, i, v)` — `xs` with index `i` replaced by `v`.
+export set := (xs, i, v) ~> [...take(xs, i), v, ...drop(xs, i + 1)]
+
+--- `replicate(x, n)` — `[x, ..., x]`, `n` times.
+export replicate := (x, n) ~> while { i: 0, acc: [] } {
+  (i, acc) ~> if i < n {
+    { state: { i: i + 1, acc: [...acc, x] } }
+  } else { { out: acc } }
+}
+
+--- `product(xs)` — the product of a list of extents (`[]` → 1).
+export product := (xs) ~> match xs {
+  []: 1,
+  [h, ...t]: h * product(t)
+}
+
+--- `sum(xs)` — the sum of a list of numbers (`[]` → 0).
+export sum := (xs) ~> match xs {
+  []: 0,
+  [h, ...t]: h + sum(t)
+}
+
+--- `flat(x)` — row-major flattening of nested number arrays; a
+--- non-list value contributes itself (`flat(5)` → `[5]`, the rank-0
+--- projection case). Leaves are not validated — `flat_num` is the
+--- checked variant.
+export flat := (x) ~> match x {
+  []: [],
+  [h, ...t]: [...flat(h), ...flat(t)],
+  _: [x]
+}
+
+--- `flat_num(x)` — like `flat`, but each leaf is multiplied by `1`,
+--- which the engine rejects on non-numbers (`"x" * 1` is a type error).
+--- This is how `from_list` rejects non-number leaves the way the Rust
+--- impl does.
+export flat_num := (x) ~> match x {
+  []: [],
+  [h, ...t]: [...flat_num(h), ...flat_num(t)],
+  _: [x * 1]
+}
+
+--- Row-major strides of `shape` (contiguous layout — the only layout
+--- the surface uses).
+export strides := (shape) ~> while { i: len(shape) - 1, acc: 1, out: replicate(0, len(shape)) } {
+  (i, acc, out) ~> if i >= 0 {
+    { state: { i: i - 1, acc: acc * shape[i], out: set(out, i, acc) } }
+  } else { { out: out } }
+}
+
+--- `unravel(shape, k)` — the row-major index tuple of flat position `k`
+--- under `shape`: `unravel([2, 3], 4)` → `[1, 1]`. Inverse of `ravel`:
+--- `ix[d] = (k / strides[d]) % shape[d]` with `%` the integer remainder.
+export unravel := (shape, k) ~> do {
+  st :: strides(shape)
+  while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(shape) {
+      { state: { i: i + 1, acc: [...acc, (k / st[i]) % shape[i]] } }
+    } else { { out: acc } }
+  }
+}
+
+--- `dot(ix, st)` — `Σ ix[d]·st[d]`, the flat offset of index tuple `ix`
+--- under strides `st` (a `0` stride is the broadcast stretch).
+export dot := (ix, st) ~> while { i: 0, acc: 0 } {
+  (i, acc) ~> if i < len(ix) {
+    { state: { i: i + 1, acc: acc + ix[i] * st[i] } }
+  } else { { out: acc } }
+}

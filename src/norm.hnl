@@ -1,0 +1,133 @@
+--- norm.hnl — `batch_norm`, `batch_norm_backward`, `derive`:
+--- spec-mirroring host-tensor/src/ops.rs `BatchNorm`,
+--- `BatchNormBackward`, and `Derive`.
+
+from "./internal/helpers.hnl" import { die, len, replicate, set }
+from "./codec.hnl" import { wire, as_wire }
+
+--- `batch_norm` eval mode: `(x − μ)/√(σ²+ε)·γ+β` per channel, spelled
+--- exactly as the Rust impl — `g = γ·(1/√(σ²+ε))`, `shift = β − μ·g`,
+--- `out = x·g + shift` — so the f64 expression tree matches
+--- bit-for-bit, not just mathematically. `eps` is `null`/absent → 1e-5.
+--- `input [N, C, H, W]`; `gamma`/`beta`/`mean`/`var` rank-1 `[C]`.
+export batch_norm := (input, gamma, beta, mean, var, ...rest) ~> do {
+  wi :: as_wire(input)
+  ish :: wi.__tensor__.shape
+  check_rank :: if len(ish) == 4 { true } else {
+    die("tensor.batch_norm: expected a rank-4 input [N, C, H, W]")
+  }
+  c :: ish[1]
+  gs :: as_wire(gamma).__tensor__.data
+  bs :: as_wire(beta).__tensor__.data
+  ms :: as_wire(mean).__tensor__.data
+  vs :: as_wire(var).__tensor__.data
+  check_params :: if len(gs) == c && len(bs) == c && len(ms) == c && len(vs) == c {
+    true
+  } else { die("tensor.batch_norm: parameter shape != [C]") }
+  eps :: if len(rest) > 0 && rest[0] != null { rest[0] } else { 0.00001 }
+  check_eps :: if eps >= 0 { true } else {
+    die("tensor.batch_norm: eps must be a non-negative finite number")
+  }
+  hw :: ish[2] * ish[3]
+  di :: wi.__tensor__.data
+  ds :: while { bn: 0, acc: [] } {
+    (bn, acc) ~> if bn < ish[0] {
+      do {
+        acc2 :: while { ch: 0, acc3: acc } {
+          (ch, acc3) ~> if ch < c {
+            do {
+              inv_std :: 1 / ((vs[ch] + eps) ** 0.5)
+              g :: gs[ch] * inv_std
+              shift :: bs[ch] - ms[ch] * g
+              base :: (bn * c + ch) * hw
+              acc4 :: while { i: 0, acc5: acc3 } {
+                (i, acc5) ~> if i < hw {
+                  { state: { i: i + 1, acc5: [...acc5, di[base + i] * g + shift] } }
+                } else { { out: acc5 } }
+              }
+              { state: { ch: ch + 1, acc3: acc4 } }
+            }
+          } else { { out: acc3 } }
+        }
+        { state: { bn: bn + 1, acc: acc2 } }
+      }
+    } else { { out: acc } }
+  }
+  wire(ish, ds)
+}
+
+--- `tensor.batch_norm_backward` — the adjoint `DERIV_PAIRS` registers
+--- for `tensor.batch_norm`: primal args + upstream `grad_out` →
+--- `{"input": dx, "gamma": dγ, "beta": dβ}`. Per channel, with
+--- `inv_std = 1/√(σ²+ε)`, `scale = γ·inv_std`, `x̂ = (x−μ)·inv_std`:
+--- `dβ += g`, `dγ += g·x̂`, `dx = g·scale` (sums over batch+spatial).
+export batch_norm_backward := (input, gamma, beta, mean, var, grad_out, ...rest) ~> do {
+  wi :: as_wire(input)
+  wg :: as_wire(grad_out)
+  ish :: wi.__tensor__.shape
+  check_rank :: if len(ish) == 4 { true } else {
+    die("tensor.batch_norm_backward: expected a rank-4 input [N, C, H, W]")
+  }
+  check_grad :: if wg.__tensor__.shape == ish { true } else {
+    die("tensor.batch_norm_backward: grad_out shape != input shape")
+  }
+  c :: ish[1]
+  gs :: as_wire(gamma).__tensor__.data
+  ms :: as_wire(mean).__tensor__.data
+  vs :: as_wire(var).__tensor__.data
+  bs :: as_wire(beta).__tensor__.data
+  check_params :: if len(gs) == c && len(bs) == c && len(ms) == c && len(vs) == c {
+    true
+  } else { die("tensor.batch_norm_backward: parameter shape != [C]") }
+  eps :: if len(rest) > 0 && rest[0] != null { rest[0] } else { 0.00001 }
+  check_eps :: if eps >= 0 { true } else {
+    die("tensor.batch_norm_backward: eps must be a non-negative finite number")
+  }
+  hw :: ish[2] * ish[3]
+  di :: wi.__tensor__.data
+  dg :: wg.__tensor__.data
+  -- walk the input row-major; dx is appended in order, dγ/dβ fold into
+  -- per-channel accumulators (lists of length C updated via `set`).
+  r :: while { bn: 0, dx: [], dgamma: replicate(0, c), dbeta: replicate(0, c) } {
+    (bn, dx, dgamma, dbeta) ~> if bn < ish[0] {
+      do {
+        step :: while { ch: 0, dx2: dx, dg2: dgamma, db2: dbeta } {
+          (ch, dx2, dg2, db2) ~> if ch < c {
+            do {
+              inv_std :: 1 / ((vs[ch] + eps) ** 0.5)
+              scale :: gs[ch] * inv_std
+              base :: (bn * c + ch) * hw
+              cell :: while { i: 0, dx3: dx2, dg3: dg2[ch], db3: db2[ch] } {
+                (i, dx3, dg3, db3) ~> if i < hw {
+                  do {
+                    g :: dg[base + i]
+                    x_hat :: (di[base + i] - ms[ch]) * inv_std
+                    { state: { i: i + 1,
+                               dx3: [...dx3, g * scale],
+                               dg3: dg3 + g * x_hat,
+                               db3: db3 + g } }
+                  }
+                } else { { out: { dx: dx3, dg: dg3, db: db3 } } }
+              }
+              { state: { ch: ch + 1, dx2: cell.dx,
+                         dg2: set(dg2, ch, cell.dg), db2: set(db2, ch, cell.db) } }
+            }
+          } else { { out: { dx: dx2, dgamma: dg2, dbeta: db2 } } }
+        }
+        { state: { bn: bn + 1, dx: step.dx, dgamma: step.dgamma, dbeta: step.dbeta } }
+      }
+    } else { { out: { dx: dx, dgamma: dgamma, dbeta: dbeta } } }
+  }
+  { input: wire(ish, r.dx), gamma: wire([c], r.dgamma), beta: wire([c], r.dbeta) }
+}
+
+--- `tensor.derive` — the registered-pairs table, not autodiff: the
+--- adjoint op name for `name`, or `null`. A bare local name qualifies
+--- to `tensor.<name>`; the only pair so far is
+--- `tensor.batch_norm → tensor.batch_norm_backward`. (A non-string
+--- argument flows through as `null` here — the host op raises a
+--- TypeMismatch instead; the divergence is documented.)
+export derive := (name) ~>
+  if name == "batch_norm" || name == "tensor.batch_norm" {
+    "tensor.batch_norm_backward"
+  } else { null }

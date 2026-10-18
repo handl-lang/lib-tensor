@@ -1,0 +1,89 @@
+--- lib-tensor — the transparent tensor-op spec.
+---
+--- `.hnl` source implementations of the 18-op `tensor.*` surface
+--- host-tensor provides as native atoms (host-tensor/src/index.hnl is
+--- the interface contract; src/ops.rs the reference impl). The two
+--- packages are a design pair:
+---
+---   host-tensor — opaque atoms for fast eval: `tensor.*` calls are
+---   `call_host` leaves dispatched into Rust impls; a rewrite sees the
+---   op head and nothing inside it.
+---
+---   lib-tensor — the transparent spec: the same ops written in the
+---   language, so the categorical machinery sees the structure — the
+---   broadcast odometer, the NCHW convolution loops, the per-channel
+---   BN affine — not leaves.
+---
+--- Values: ops consume and produce the *wire form*
+---   {"__tensor__": {"shape": [d, ...], "data": [x, ...], "dtype": "f64"}}
+--- — the tagged plain object that crosses the `Function` boundary.
+--- Opaque `TaggedValue::Tensor` inputs (a host op's result) are
+--- normalized through `"tensor.shape"`/`"tensor.to_list"` at op entry
+--- — the only host calls in the package; on wire-record inputs there
+--- are none. See README for the expressibility findings (the while-
+--- boundary decode, the Tensor opacity floor, reserved names).
+---
+--- `from "lib-tensor" import ltensor` binds the whole surface; each op
+--- mirrors its host-tensor namesake's signature 1:1.
+
+from "./codec.hnl" import zeros as __zeros
+export zeros := __zeros
+from "./codec.hnl" import ones as __ones
+export ones := __ones
+from "./codec.hnl" import from_list as __from_list
+export from_list := __from_list
+from "./codec.hnl" import to_list as __to_list
+export to_list := __to_list
+from "./codec.hnl" import shape as __shape
+export shape := __shape
+from "./elementwise.hnl" import add as __add
+export add := __add
+from "./elementwise.hnl" import mul as __mul
+export mul := __mul
+from "./elementwise.hnl" import sub as __sub
+export sub := __sub
+from "./elementwise.hnl" import div as __div
+export div := __div
+from "./matmul.hnl" import matmul as __matmul
+export matmul := __matmul
+from "./conv.hnl" import conv2d as __conv2d
+export conv2d := __conv2d
+from "./conv.hnl" import max_pool as __max_pool
+export max_pool := __max_pool
+from "./norm.hnl" import batch_norm as __batch_norm
+export batch_norm := __batch_norm
+from "./shape_ops.hnl" import reshape as __reshape
+export reshape := __reshape
+from "./shape_ops.hnl" import transpose as __transpose
+export transpose := __transpose
+from "./shape_ops.hnl" import concat as __concat
+export concat := __concat
+from "./norm.hnl" import batch_norm_backward as __batch_norm_backward
+export batch_norm_backward := __batch_norm_backward
+from "./norm.hnl" import derive as __derive
+export derive := __derive
+
+--- The `ltensor` namespace record — `from "lib-tensor" import ltensor`
+--- binds the whole surface at once, the same shape host-tensor's
+--- `tensor` record has (its fields are arrows where host's are
+--- qualified-name strings — both dispatch on call).
+export ltensor := {
+  zeros: __zeros,
+  ones: __ones,
+  from_list: __from_list,
+  to_list: __to_list,
+  shape: __shape,
+  add: __add,
+  mul: __mul,
+  sub: __sub,
+  div: __div,
+  matmul: __matmul,
+  conv2d: __conv2d,
+  max_pool: __max_pool,
+  batch_norm: __batch_norm,
+  reshape: __reshape,
+  transpose: __transpose,
+  concat: __concat,
+  batch_norm_backward: __batch_norm_backward,
+  derive: __derive
+}

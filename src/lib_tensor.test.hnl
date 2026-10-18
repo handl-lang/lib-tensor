@@ -1,0 +1,70 @@
+--- lib-tensor — differential spec tests: every `.hnl` op asserted
+--- identical to host-tensor's native impl on shared fixtures.
+---
+--- Representation note: lib ops return the wire record
+--- `{"__tensor__": …}` where host ops return the kernel `Tensor`
+--- variant — the two are `==`-distinct TaggedValues, so equality is
+--- asserted through `tensor.to_list` (the host projection accepts the
+--- wire form on decode). `assert` compares with `=`; `.hnl` numeric
+--- equality is int/float-insensitive (`1 == 1.0`), matching the
+--- wire's f64 canonicalization.
+---
+--- Host-dependence: this suite calls `tensor.*` — like host-tensor's
+--- own `src/tensor.test.hnl` it fails as `call_host: function
+--- 'tensor.<op>' not found` under a bare `hnl test` (the gate's
+--- dialect detector also marks it arrow-dialect and skips it), so it
+--- is not counted there. The executable path is a host with the
+--- `tensor` module composed — catopt's `CatoptKit` (`hnl-run
+--- --project .` on `verify.hnl`, which runs the same assertions and
+--- prints a verdict list).
+
+from "host-tensor" import tensor
+from "lib-tensor" import ltensor as lt
+
+--- fixtures — wire records via `lt.from_list`, opaque tensors via
+--- `tensor.from_list`; every op is exercised on both representations.
+w23 := lt.from_list([[1, 2, 3], [4, 5, 6]])
+t23 := tensor.from_list([[1, 2, 3], [4, 5, 6]])
+
+test_zeros := assert tensor.to_list(lt.zeros([2, 2])) = tensor.to_list(tensor.zeros([2, 2]))
+test_ones := assert tensor.to_list(lt.ones([3])) = tensor.to_list(tensor.ones([3]))
+test_from_list := assert tensor.to_list(lt.from_list([[1, 2], [3, 4]])) = tensor.to_list(tensor.from_list([[1, 2], [3, 4]]))
+test_to_list := assert lt.to_list(t23) = tensor.to_list(t23)
+test_shape := assert lt.shape(t23) = tensor.shape(t23)
+
+test_add := assert tensor.to_list(lt.add(tensor.ones([2]), tensor.ones([2]))) = [2, 2]
+test_add_broadcast := assert tensor.to_list(lt.add(t23, tensor.from_list([10, 20, 30]))) = tensor.to_list(tensor.add(t23, tensor.from_list([10, 20, 30])))
+test_add_broadcast_outer := assert tensor.to_list(lt.add(tensor.from_list([[1], [10]]), tensor.from_list([[100, 200, 300]]))) = [[101, 201, 301], [110, 210, 310]]
+test_mul_broadcast := assert tensor.to_list(lt.mul(t23, tensor.from_list([2, 3, 4]))) = tensor.to_list(tensor.mul(t23, tensor.from_list([2, 3, 4])))
+test_sub_broadcast := assert tensor.to_list(lt.sub(tensor.from_list([[10, 20], [30, 40]]), tensor.from_list([[1], [2]]))) = [[9, 19], [28, 38]]
+test_div_broadcast := assert tensor.to_list(lt.div(tensor.from_list([[8, 9], [10, 12]]), tensor.from_list([[2, 3]]))) = [[4, 3], [5, 4]]
+--- wire-record inputs take the same path (no host calls inside).
+test_add_wire := assert tensor.to_list(lt.add(w23, lt.from_list([10, 20, 30]))) = [[11, 22, 33], [14, 25, 36]]
+
+test_matmul_2x2 := assert tensor.to_list(lt.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]))) = [[19, 22], [43, 50]]
+test_matmul_rect := assert tensor.to_list(lt.matmul(tensor.from_list([[1, 2, 3], [4, 5, 6]]), tensor.from_list([[7, 8], [9, 10], [11, 12]]))) = [[58, 64], [139, 154]]
+test_matmul_batched := assert tensor.to_list(lt.matmul(tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]), tensor.from_list([[[3], [4]], [[5], [6]]]))) = [[[3], [4]], [[10], [12]]]
+test_matmul_batch_broadcast := assert tensor.to_list(lt.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]))) = [[[1, 2], [3, 4]], [[2, 4], [6, 8]]]
+
+test_conv2d_1x1 := assert tensor.to_list(lt.conv2d(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]))) = [[[[7, 10]], [[-1, -2]]]]
+test_conv2d_padding := assert tensor.to_list(lt.conv2d(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]]), null, null, 1)) = [[[[10, 10], [10, 10]]]]
+test_conv2d_stride_bias := assert tensor.to_list(lt.conv2d(tensor.from_list([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), tensor.from_list([[[[1, 1], [1, 1]]]]), tensor.from_list([10]), 2)) = [[[[22]]]]
+test_conv2d_groups := assert tensor.to_list(lt.conv2d(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[1, 0], [0, 0]]], [[[0, 0], [0, 1]]]]), null, null, null, 2)) = tensor.to_list(tensor.conv2d(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[1, 0], [0, 0]]], [[[0, 0], [0, 1]]]]), null, null, null, 2))
+
+test_max_pool := assert tensor.to_list(lt.max_pool(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), 2)) = [[[[6, 8], [14, 16]]]]
+test_max_pool_stride := assert tensor.to_list(lt.max_pool(tensor.from_list([[[[1, 5, 2], [3, 4, 6]]]]), [2, 2], [1, 1])) = [[[[5, 6]]]]
+
+test_batch_norm := assert tensor.to_list(lt.batch_norm(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), 0)) = [[[[1, 2]], [[1, 2]]]]
+test_batch_norm_default_eps := assert tensor.to_list(lt.batch_norm(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]))) = tensor.to_list(tensor.batch_norm(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4])))
+
+test_reshape := assert tensor.to_list(lt.reshape(t23, [3, 2])) = [[1, 2], [3, 4], [5, 6]]
+test_transpose := assert tensor.to_list(lt.transpose(t23, 0, 1)) = [[1, 4], [2, 5], [3, 6]]
+test_transpose_rank3 := assert tensor.to_list(lt.transpose(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), 1, 2)) = [[[1, 3], [2, 4]], [[5, 7], [6, 8]]]
+test_concat_axis0 := assert tensor.to_list(lt.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6]])], 0)) = [[1, 2], [3, 4], [5, 6]]
+test_concat_axis1 := assert tensor.to_list(lt.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5], [6]])], 1)) = [[1, 2, 5], [3, 4, 6]]
+
+test_derive := assert lt.derive("batch_norm") = "tensor.batch_norm_backward"
+test_derive_unpaired := assert lt.derive("tensor.conv2d") = null
+
+test_batch_norm_backward := assert tensor.to_list((lt.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).beta) = [1.5, 3.5]
+test_batch_norm_backward_input := assert tensor.to_list((lt.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).input) = tensor.to_list((tensor.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).input)

@@ -1,0 +1,93 @@
+--- elementwise.hnl — `add`/`mul`/`sub`/`div` with numpy broadcasting.
+---
+--- The spec mirror of `broadcast_elementwise` in
+--- host-tensor/src/ops.rs: align trailing dims, a `1`-dim stretches, a
+--- missing leading dim counts as `1`; a dim pair that differs with
+--- neither side `1` is an error (`die`). The output is produced in
+--- row-major order — flat position `k` unravels to an index tuple,
+--- and each side's stride map (a `0` stride where the side's dim was
+--- `1` or missing) projects it back into that input's flat data.
+
+from "./internal/helpers.hnl" import { die, len, product, replicate, strides, unravel, dot }
+from "./codec.hnl" import { wire, as_wire, wire_shape, wire_data }
+
+--- The broadcast of two shapes: pad the shorter with leading `1`s, then
+--- each pair must be equal or contain a `1`.
+broadcast_shape := (a, b) ~> do {
+  r :: if len(a) >= len(b) { len(a) } else { len(b) }
+  pa :: [...replicate(1, r - len(a)), ...a]
+  pb :: [...replicate(1, r - len(b)), ...b]
+  while { i: 0, acc: [] } {
+    (i, acc) ~> if i < r {
+      do {
+        da :: pa[i]
+        db :: pb[i]
+        o :: if da == db { da } else {
+          if da == 1 { db } else {
+            if db == 1 { da } else { die("elementwise: shapes are not broadcast-compatible") }
+          }
+        }
+        { state: { i: i + 1, acc: [...acc, o] } }
+      }
+    } else { { out: acc } }
+  }
+}
+
+--- Per-axis strides mapping an output index tuple back into `shape`'s
+--- flat data under broadcast `out_shape`: contiguous row-major strides,
+--- except a dim of `1` (or a missing leading dim) contributes `0`, so
+--- its single index is reused across the stretch.
+broadcast_strides := (shape, out_shape) ~> do {
+  inner :: strides(shape)
+  off :: len(out_shape) - len(shape)
+  inner_bc :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(shape) {
+      do {
+        s :: if shape[i] == 1 { 0 } else { inner[i] }
+        { state: { i: i + 1, acc: [...acc, s] } }
+      }
+    } else { { out: acc } }
+  }
+  [...replicate(0, off), ...inner_bc]
+}
+
+--- The driver behind `add`/`mul`/`sub`/`div`: elementwise `f` over the
+--- broadcast of `a` and `b`, accepting the wire record or an opaque
+--- tensor on either side.
+elementwise := (a, b, f) ~> do {
+  wa :: as_wire(a)
+  wb :: as_wire(b)
+  ash :: wa.__tensor__.shape
+  bsh :: wb.__tensor__.shape
+  osh :: broadcast_shape(ash, bsh)
+  sa :: broadcast_strides(ash, osh)
+  sb :: broadcast_strides(bsh, osh)
+  da :: wa.__tensor__.data
+  db :: wb.__tensor__.data
+  n :: product(osh)
+  ds :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < n {
+      do {
+        ix :: unravel(osh, i)
+        v :: f(da[dot(ix, sa)], db[dot(ix, sb)])
+        { state: { i: i + 1, acc: [...acc, v] } }
+      }
+    } else { { out: acc } }
+  }
+  wire(osh, ds)
+}
+
+--- `tensor.add` — elementwise `a + b`, numpy-style broadcasting.
+export add := (a, b) ~> elementwise(a, b, (x, y) ~> x + y)
+
+--- `tensor.mul` — elementwise `a * b`, numpy-style broadcasting.
+export mul := (a, b) ~> elementwise(a, b, (x, y) ~> x * y)
+
+--- `tensor.sub` — elementwise `a - b`, numpy-style broadcasting.
+export sub := (a, b) ~> elementwise(a, b, (x, y) ~> x - y)
+
+--- `tensor.div` — elementwise `a / b`, numpy-style broadcasting. `x/0`
+--- is `inf`/`NaN`, matching the scalar `/` (and therefore the host op —
+--- the `serde_json` wire then carries `null`, which both sides reject
+--- on re-decode identically).
+export div := (a, b) ~> elementwise(a, b, (x, y) ~> x / y)

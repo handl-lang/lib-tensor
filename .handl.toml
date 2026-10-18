@@ -1,0 +1,32 @@
+# handl manifest for the `lib-tensor` repo: `.hnl` implementations of
+# the `tensor.*` surface host-tensor provides natively — the
+# transparent spec to host-tensor's opaque atoms.
+#
+# `name` is inert to the loader today (HostConfig has no `[package]`
+# table and ignores it) but names the package for future tooling;
+# `[dependencies]` maps import names to package directories (ADR-0128
+# Phase-5 seam). The repo's own package is declared self-referentially
+# — under both the package name (`lib-tensor`) and the module
+# namespace it contributes (`ltensor`) — so name-specs keep resolving
+# when a dependent repo's modules are loaded under this manifest's
+# context (host-tensor does the same for `tensor`).
+[package]
+name = "lib-tensor"
+
+[dependencies]
+# The differential pair member: `from "host-tensor" import tensor` in
+# the spec tests / verify.hnl, and the qualified `"tensor.*"` calls on
+# codec.hnl's opaque-input path, both resolve through this entry. The
+# git source is the portable spelling; `subdir = "src"` names the
+# package root inside the clone (host-tensor's .hnl surface lives in
+# src/index.hnl). The fetch-on-miss hook clones into the package-cache
+# slot; `[patch]` below dev-links the sibling checkout.
+host-tensor = { git = "https://github.com/handl-lang/host-tensor", branch = "main", subdir = "src" }
+lib-tensor  = { path = "src" }
+ltensor     = { path = "src" }
+
+[patch]
+# Sibling-checkout dev-link (the handl-lang `~/GitHub/handl-lang/*`
+# convention); inert where the sibling is absent and the git source
+# applies.
+host-tensor = "../host-tensor/src"

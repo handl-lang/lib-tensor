@@ -1,0 +1,133 @@
+--- codec.hnl — the tensor wire representation and the boundary ops.
+---
+--- A tensor at the `Function` boundary is the tagged plain object
+---   {"__tensor__": {"shape": [d, ...], "data": [x, ...], "dtype": "f64"}}
+--- (host-tensor/src/ops.rs `encode_tensor`; ADR-0083 §2.1): `shape` is
+--- the extent per axis, `data` the flat row-major payload of length
+--- `product(shape)`, `dtype` the element type (`"f64"` only).
+---
+--- lib-tensor operates *on the wire form*: inside an engine a
+--- `.hnl` record literal stays a transparent `Obj` — the e-graph sees
+--- `{__tensor__: {shape: …, data: …}}` structure, not an opaque leaf.
+--- Every op in this package accepts BOTH representations at its tensor
+--- parameters (`as_wire`): the wire record passes through untouched,
+--- while an opaque `TaggedValue::Tensor` (the kernel variant a host op
+--- like `tensor.from_list` returns) is projected through the qualified
+--- host-op names `"tensor.shape"`/`"tensor.to_list"` — the only host
+--- calls in the package, and the one thing `.hnl` cannot express: there
+--- is no eval-vocabulary destructure of a `Tensor` value (the
+--- expressibility boundary — see README "what cannot be written").
+--- The names are called as literal string callees, so no import binding
+--- is needed on this path — only a runtime that has the `tensor` host
+--- module composed.
+---
+--- `shape`/`to_list`/`zeros`/`ones`/`from_list` mirror the host ops
+--- 1:1: given wire records they need no host call at all; given opaque
+--- tensors they delegate the projection half to `"tensor.shape"` /
+--- `"tensor.to_list"` (and never the construction half — the wire
+--- record is built right here).
+
+from "./internal/helpers.hnl" import { die, len, flat, flat_num, product, replicate }
+
+--- The canonical wire encoding of `(shape, data)`. (The parentheses are
+--- load-bearing: a bare `~> {` parses as a block, not a record literal.)
+export wire := (shape, ds) ~> ({
+  "__tensor__": { "shape": shape, "data": ds, "dtype": "f64" }
+})
+
+--- Flat row-major payload for a wire record or opaque tensor — for the
+--- opaque case, `tensor.to_list` projects the nested form and `flat`
+--- re-flattens it (a rank-0 tensor projects to a number, which `flat`
+--- wraps to a singleton).
+export wire_data := (t) ~> match t {
+  { "__tensor__": inner }: inner.data,
+  _: flat("tensor.to_list"(t))
+}
+
+--- Extent-per-axis for either representation.
+export wire_shape := (t) ~> match t {
+  { "__tensor__": inner }: inner.shape,
+  _: "tensor.shape"(t)
+}
+
+--- `as_wire(t)` — normalize a tensor argument: wire records pass
+--- through; opaque `TaggedValue::Tensor`s become the wire record of
+--- their host-projected shape and flattened data.
+export as_wire := (t) ~> match t {
+  { "__tensor__": _ }: t,
+  _: wire("tensor.shape"(t), flat("tensor.to_list"(t)))
+}
+
+--- `infer_sh(xs)` — the `from_list` shape inference: a list contributes
+--- `[len] ++ sub_sh` where `sub_sh` is the uniform sub_sh-shape of its elements;
+--- a non-list leaf contributes `[]` (its numericness is checked later,
+--- in `flat_num`). Ragged siblings are rejected via `die` — matching
+--- the host impl's `ragged input` error on the accept/reject boundary.
+infer_sh := (xs) ~> match xs {
+  []: [0],
+  [h, ...t]: do {
+    sub_sh :: infer_sh(h)
+    check :: match t {
+      []: true,
+      _: while { xs: t, ok: true } {
+        (xs, ok) ~> match xs {
+          []: { out: ok },
+          [e, ...rest]: { state: { xs: rest, ok: ok && (infer_sh(e) == sub_sh) } }
+        }
+      }
+    }
+    if check {
+      [len([h, ...t]), ...sub_sh]
+    } else { die("tensor.from_list: ragged input") }
+  },
+  _: []
+}
+
+--- `tensor.from_list` — nested number arrays → wire tensor. A
+--- non-array argument is an error (matching the host's TypeMismatch);
+--- `[]` is the rank-1 empty tensor of shape `[0]`; `[[], []]` is
+--- `[2, 0]`. Leaves are number-checked by `flat_num`.
+export from_list := (xs) ~> match xs {
+  []: wire([0], []),
+  [_, ..._]: wire(infer_sh(xs), flat_num(xs)),
+  _: die("tensor.from_list: expected nested number arrays")
+}
+
+drop1 := (xs) ~> match xs { []: [], [_, ...t]: t }
+
+--- `nest(shape, ds)` — re-nest the flat row-major `ds` under `shape`,
+--- returning `{v, rest}` where `{v, rest}`: `v` is the nested list form
+--- and `rest` the unconsumed tail (the internal counterpart of
+--- `to_list`; rank-0 `shape == []` projects the single scalar).
+nest := (shape, ds) ~> match shape {
+  []: { v: ds[0], rest: drop1(ds) },
+  [d, ...rest]: while { i: 0, acc: [], rem: ds } {
+    (i, acc, rem) ~> if i < d {
+      do {
+        r :: nest(rest, rem)
+        { state: { i: i + 1, acc: [...acc, r.v], rem: r.rest } }
+      }
+    } else { { out: { v: acc, rest: rem } } }
+  }
+}
+
+--- `tensor.to_list` — tensor → nested number arrays. Wire records
+--- nest in-process (pure); opaque tensors delegate to the host
+--- projection — the field access a `.hnl` function cannot perform.
+export to_list := (t) ~> match t {
+  { "__tensor__": inner }: nest(inner.shape, inner.data).v,
+  _: "tensor.to_list"(t)
+}
+
+--- `tensor.shape` — the extent-per-axis list. Pure on wire records;
+--- the host projection on opaque tensors.
+export shape := (t) ~> wire_shape(t)
+
+--- `tensor.zeros` — a tensor of `shape` filled with `0`. The host fills
+--- with `0.0`; the wire data here is integer `0`, which is `f64`
+--- `0.0` the moment it crosses the `Function` boundary (`0 == 0.0`
+--- holds elementwise under `to_list` comparison either way).
+export zeros := (shp) ~> wire(shp, replicate(0, product(shp)))
+
+--- `tensor.ones` — a tensor of `shape` filled with `1`.
+export ones := (shp) ~> wire(shp, replicate(1, product(shp)))

@@ -1,0 +1,6 @@
+-- lib-tensor: modules this package provides (entry defaults to
+-- src/index.hnl; N modules resolve to src/<name>/index.hnl). The dep
+-- on host-tensor is declared in `.handl.toml` (`git` + `subdir`):
+-- `pkg.hnl` deps resolve to `../lib-<name>` checkouts, which
+-- `host-tensor` is not.
+{ modules: ["lib-tensor"] }

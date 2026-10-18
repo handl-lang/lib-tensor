@@ -1,0 +1,153 @@
+--- shape_ops.hnl — `reshape`/`transpose`/`concat`: the re-labeling
+--- ops, spec-mirroring host-tensor/src/ops.rs.
+
+from "./internal/helpers.hnl" import { die, len, product, strides, unravel, dot, slice }
+from "./codec.hnl" import { wire, as_wire, wire_shape, wire_data }
+
+--- `shapes_of(xs)` / `datas_of(xs)` — project every element's
+--- shape/flat-data *before* any `while` runs. The `while` step boundary
+--- round-trips its state and captured env through the wire codec, and a
+--- `{ "__tensor__": … }` record decodes to an opaque `Tensor` there —
+--- so a list of wire records cannot ride loop state. Plain lists and
+--- untagged records pass through untouched, which is why the whole
+--- package destructures to shape/data lists at op entry and builds the
+--- wire record only at the tail. (Recursion, unlike `while`, does not
+--- reserialize: the projections keep working on either representation.)
+shapes_of := (xs) ~> match xs {
+  []: [],
+  [h, ...t]: [wire_shape(h), ...shapes_of(t)]
+}
+
+datas_of := (xs) ~> match xs {
+  []: [],
+  [h, ...t]: [wire_data(h), ...datas_of(t)]
+}
+
+--- `tensor.reshape` — re-label the flat row-major payload under
+--- `shape`; the extents' product must equal the element count (a
+--- reshape is a view, not a permutation — the data order never moves).
+--- No `-1` wildcard, matching the host op.
+export reshape := (t, shape) ~> do {
+  w :: as_wire(t)
+  expected :: product(shape)
+  check :: if expected == len(w.__tensor__.data) { true } else {
+    die("tensor.reshape: shape's product does not equal the element count")
+  }
+  wire(shape, w.__tensor__.data)
+}
+
+--- `tensor.transpose` — swap axes `d0`/`d1`: the output's axis `d`
+--- reads the input's axis `perm[d]`. `d0 == d1` is the identity; an
+--- out-of-range axis is an error. The output is produced in its own
+--- row-major order, each index tuple mapped back through the permuted
+--- input strides.
+export transpose := (t, d0, d1) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  check :: if d0 < r && d1 < r && d0 >= 0 && d1 >= 0 { true } else {
+    die("tensor.transpose: dims out of range for the tensor's rank")
+  }
+  perm :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < r {
+      do {
+        p :: if i == d0 { d1 } else { if i == d1 { d0 } else { i } }
+        { state: { i: i + 1, acc: [...acc, p] } }
+      }
+    } else { { out: acc } }
+  }
+  osh :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < r {
+      { state: { i: i + 1, acc: [...acc, shp[perm[i]]] } }
+    } else { { out: acc } }
+  }
+  st :: strides(shp)
+  dst :: w.__tensor__.data
+  n :: product(osh)
+  ds :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < n {
+      do {
+        ix :: unravel(osh, i)
+        -- output tuple ix reads input offset Σ_d ix[d]·st[perm[d]]
+        stp :: while { j: 0, acc2: [] } {
+          (j, acc2) ~> if j < r {
+            { state: { j: j + 1, acc2: [...acc2, st[perm[j]]] } }
+          } else { { out: acc2 } }
+        }
+        { state: { i: i + 1, acc: [...acc, dst[dot(ix, stp)]] } }
+      }
+    } else { { out: acc } }
+  }
+  wire(osh, ds)
+}
+
+--- `tensor.concat` — join a non-empty list of same-rank tensors along
+--- `axis`, which must agree on every other axis and whose extents sum.
+--- Row-major: dims before `axis` give an `outer` repeat count, dims
+--- after an `inner` contiguous run — each input's per-outer block is
+--- contiguous, copied block-by-block (the host impl's loop order).
+export concat := (xs, axis) ~> do {
+  check_nonempty :: if len(xs) > 0 { true } else {
+    die("tensor.concat: expected a non-empty list of tensors")
+  }
+  shps :: shapes_of(xs)
+  dats :: datas_of(xs)
+  shp0 :: shps[0]
+  r :: len(shp0)
+  check_rank :: if r > 0 { true } else {
+    die("tensor.concat: cannot concat rank-0 tensors")
+  }
+  check_axis :: if axis < r && axis >= 0 { true } else {
+    die("tensor.concat: axis out of range for the inputs' rank")
+  }
+  check_shapes :: while { i: 1, ok: true } {
+    (i, ok) ~> if i < len(shps) {
+      do {
+        shp :: shps[i]
+        same_rank :: len(shp) == r
+        same_axes :: while { d: 0, ok2: true } {
+          (d, ok2) ~> if d < r {
+            { state: { d: d + 1, ok2: ok2 && (d == axis || shp[d] == shp0[d]) } }
+          } else { { out: ok2 } }
+        }
+        { state: { i: i + 1, ok: ok && same_rank && same_axes } }
+      }
+    } else { { out: ok } }
+  }
+  check_all :: if check_shapes { true } else {
+    die("tensor.concat: inputs differ on a non-concat axis or rank")
+  }
+  outer :: product(slice(shp0, 0, axis))
+  inner :: product(slice(shp0, axis + 1, r - axis - 1))
+  osh_axis :: while { i: 0, acc: 0 } {
+    (i, acc) ~> if i < len(shps) {
+      { state: { i: i + 1, acc: acc + shps[i][axis] } }
+    } else { { out: acc } }
+  }
+  osh :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < r {
+      do {
+        e :: if i == axis { osh_axis } else { shp0[i] }
+        { state: { i: i + 1, acc: [...acc, e] } }
+      }
+    } else { { out: acc } }
+  }
+  -- for each outer block, append each input's contiguous
+  -- shape[axis]·inner slab in input order.
+  ds :: while { o: 0, acc: [] } {
+    (o, acc) ~> if o < outer {
+      do {
+        acc2 :: while { i: 0, acc3: acc } {
+          (i, acc3) ~> if i < len(shps) {
+            do {
+              slab :: shps[i][axis] * inner
+              { state: { i: i + 1, acc3: [...acc3, ...slice(dats[i], o * slab, slab)] } }
+            }
+          } else { { out: acc3 } }
+        }
+        { state: { o: o + 1, acc: acc2 } }
+      }
+    } else { { out: acc } }
+  }
+  wire(osh, ds)
+}
