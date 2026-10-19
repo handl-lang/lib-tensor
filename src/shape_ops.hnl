@@ -151,3 +151,55 @@ export concat := (xs, axis) ~> do {
   }
   wire(osh, ds)
 }
+
+--- `tensor.reshape_backward` — `g` relabeled back to the input's shape
+--- (a reshape moves no data; mirrors `ReshapeBackward`).
+export reshape_backward := (t, sh, g) ~> do {
+  wt :: as_wire(t)
+  wg :: as_wire(g)
+  ish :: wt.__tensor__.shape
+  check_elems :: if product(sh) == product(ish) { true } else {
+    die("tensor.reshape_backward: shape element count != input's")
+  }
+  check_grad :: if wg.__tensor__.shape == sh { true } else {
+    die("tensor.reshape_backward: grad_out shape != reshape output")
+  }
+  ({ input: wire(ish, wg.__tensor__.data) })
+}
+
+--- `tensor.transpose_backward` — `g` transposed along the same axes
+--- (transpose is self-inverse; mirrors `TransposeBackward`).
+export transpose_backward := (t, d0, d1, g) ~> do {
+  dx :: transpose(as_wire(g), d0, d1)
+  check :: if wire_shape(dx) == wire_shape(as_wire(t)) { true } else {
+    die("tensor.transpose_backward: grad_out shape mismatch")
+  }
+  ({ input: dx })
+}
+
+--- `tensor.concat_backward` — `g` split back along `axis` at each
+--- input's extent (mirrors `ConcatBackward`): per input, the odometer
+--- maps its coordinates into `g` with the cumulative axis offset.
+export concat_backward := (xs, axis, g) ~> do {
+  wg :: as_wire(g)
+  gsh :: wg.__tensor__.shape
+  gd :: wg.__tensor__.data
+  gst :: strides(gsh)
+  r :: while { i: 0, off: 0, acc: [] } {
+    (i, off, acc) ~> if i < len(xs) {
+      do {
+        wt :: as_wire(xs[i])
+        tsh :: wt.__tensor__.shape
+        nn :: product(tsh)
+        dd :: while { k: 0, a2: [] } {
+          (k, a2) ~> if k < nn {
+            { state: { k: k + 1,
+                       a2: [...a2, gd[off * gst[axis] + dot(unravel(tsh, k), gst)]] } }
+          } else { { out: a2 } }
+        }
+        { state: { i: i + 1, off: off + tsh[axis], acc: [...acc, wire(tsh, dd)] } }
+      }
+    } else { { out: acc } }
+  }
+  ({ xs: r })
+}

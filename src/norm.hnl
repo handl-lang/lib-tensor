@@ -123,8 +123,9 @@ export batch_norm_backward := (input, gamma, beta, mean, var, grad_out, ...rest)
 
 --- `tensor.derive` — the registered-pairs table, not autodiff: the
 --- adjoint op name for `name`, or `null`. A bare local name qualifies
---- to `tensor.<name>`; seven pairs are registered — the elementwise
---- four, `matmul`, `conv2d`, and `batch_norm` — mirroring
+--- to `tensor.<name>`; eleven pairs are registered — the elementwise
+--- four, `matmul`, `conv2d`, `max_pool`, `reshape`, `transpose`,
+--- `concat`, and `batch_norm` — mirroring
 --- `DERIV_PAIRS` in host-tensor's ops/derive.rs. (A non-string
 --- argument flows through as `null` here — the host op raises a
 --- TypeMismatch instead; the divergence is documented.)
@@ -135,6 +136,10 @@ export derive := (name) ~>
   if name == "div" || name == "tensor.div" { "tensor.div_backward" } else {
   if name == "matmul" || name == "tensor.matmul" { "tensor.matmul_backward" } else {
   if name == "conv2d" || name == "tensor.conv2d" { "tensor.conv2d_backward" } else {
+  if name == "max_pool" || name == "tensor.max_pool" { "tensor.max_pool_backward" } else {
+  if name == "reshape" || name == "tensor.reshape" { "tensor.reshape_backward" } else {
+  if name == "transpose" || name == "tensor.transpose" { "tensor.transpose_backward" } else {
+  if name == "concat" || name == "tensor.concat" { "tensor.concat_backward" } else {
   if name == "batch_norm" || name == "tensor.batch_norm" {
     "tensor.batch_norm_backward"
-  } else { null } } } } } } }
+  } else { null } } } } } } } } } } }

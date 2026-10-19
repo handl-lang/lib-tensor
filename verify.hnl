@@ -25,6 +25,8 @@ do {
 
   x23 := tensor.from_list([[1, 2, 3], [4, 5, 6]])
   x23b := tensor.from_list([10, 20, 30])
+  mp_x := tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]])
+  mp_g := tensor.from_list([[[[1, 2], [3, 4]]]])
   conv_x := tensor.from_list([[[[1, 2]], [[3, 4]]]])
   conv_w := tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]])
   bn_g := tensor.from_list([1, 2])
@@ -72,6 +74,11 @@ do {
     check("div_bwd_b", tensor.to_list((lt.div_backward(x23, x23b, x23)).b), tensor.to_list((tensor.div_backward(x23, x23b, x23)).b)),
     check("mm_bwd_a", tensor.to_list((lt.matmul_backward(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]), tensor.from_list([[1, 0], [0, 1]]))).a), tensor.to_list((tensor.matmul_backward(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]), tensor.from_list([[1, 0], [0, 1]]))).a)),
     check("conv_bwd_input", tensor.to_list((lt.conv2d_backward(conv_x, conv_w, grad)).input), tensor.to_list((tensor.conv2d_backward(conv_x, conv_w, grad)).input)),
-    check("conv_bwd_bias", tensor.to_list((lt.conv2d_backward(conv_x, conv_w, grad, tensor.zeros([2]))).bias), tensor.to_list((tensor.conv2d_backward(conv_x, conv_w, grad, tensor.zeros([2]))).bias))
+    check("conv_bwd_bias", tensor.to_list((lt.conv2d_backward(conv_x, conv_w, grad, tensor.zeros([2]))).bias), tensor.to_list((tensor.conv2d_backward(conv_x, conv_w, grad, tensor.zeros([2]))).bias)),
+    check("pool_bwd", tensor.to_list((lt.max_pool_backward(mp_x, mp_g, 2)).input), tensor.to_list((tensor.max_pool_backward(mp_x, mp_g, 2)).input)),
+    check("reshape_bwd", tensor.to_list((lt.reshape_backward(x23, [3, 2], tensor.from_list([[1, 2], [3, 4], [5, 6]]))).input), tensor.to_list((tensor.reshape_backward(x23, [3, 2], tensor.from_list([[1, 2], [3, 4], [5, 6]]))).input)),
+    check("transpose_bwd", tensor.to_list((lt.transpose_backward(x23, 0, 1, tensor.from_list([[1, 4], [2, 5], [3, 6]]))).input), tensor.to_list((tensor.transpose_backward(x23, 0, 1, tensor.from_list([[1, 4], [2, 5], [3, 6]]))).input)),
+    check("concat_bwd", tensor.to_list((lt.concat_backward([x23b, x23b], 0, tensor.from_list([1, 2, 3, 4, 5, 6])).xs)[1]), tensor.to_list((tensor.concat_backward([x23b, x23b], 0, tensor.from_list([1, 2, 3, 4, 5, 6])).xs)[1])),
+    check("derive_reshape", tensor.derive("reshape"), lt.derive("reshape"))
   ]
 }

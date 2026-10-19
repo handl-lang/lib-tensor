@@ -324,3 +324,78 @@ export conv2d_backward := (input, weight, grad_out, ...rest) ~> do {
     ({ input: wire(ish, r.dx), weight: wire(wsh, r.dw), bias: wire([c_out], r.db) })
   }
 }
+
+--- `tensor.max_pool_backward` — the adjoint, mirroring the host's
+--- `MaxPoolBackward`: `max_pool_backward(input, grad_out, kernel,
+--- stride?, padding?)` scatters each grad element to its window's
+--- argmax — re-derived by the same (ky, kx) row-major scan the primal
+--- used, so a tie picks the first maximum the same way. Returns
+--- `{input}`.
+export max_pool_backward := (t, g, kernel, ...rest) ~> do {
+  wi :: as_wire(t)
+  wg :: as_wire(g)
+  ish :: wi.__tensor__.shape
+  gsh :: wg.__tensor__.shape
+  check_rank :: if len(ish) == 4 && len(gsh) == 4 { true } else {
+    die("tensor.max_pool_backward: expected rank-4 input and grad_out")
+  }
+  check_kernel :: if kernel == null {
+    die("tensor.max_pool_backward: kernel is required")
+  } else { true }
+  kp :: pair_or(kernel, [0, 0])
+  sp :: pair_or(opt_at(rest, 0), kp)
+  pp :: pair_or(opt_at(rest, 1), [0, 0])
+  k_h :: kp[0]
+  k_w :: kp[1]
+  s_h :: sp[0]
+  s_w :: sp[1]
+  p_h :: pp[0]
+  p_w :: pp[1]
+  check_pos :: if k_h > 0 && k_w > 0 && s_h > 0 && s_w > 0 { true } else {
+    die("tensor.max_pool_backward: kernel and stride must be positive")
+  }
+  n :: ish[0]
+  c :: ish[1]
+  h :: ish[2]
+  w :: ish[3]
+  check_fit :: if h + 2 * p_h >= k_h && w + 2 * p_w >= k_w { true } else {
+    die("tensor.max_pool_backward: kernel exceeds the padded input")
+  }
+  h_out :: (h + 2 * p_h - k_h) / s_h + 1
+  w_out :: (w + 2 * p_w - k_w) / s_w + 1
+  check_grad :: if gsh == [n, c, h_out, w_out] { true } else {
+    die("tensor.max_pool_backward: grad_out shape != max_pool output")
+  }
+  id :: wi.__tensor__.data
+  gd :: wg.__tensor__.data
+  dx :: while { bn: 0, ch: 0, oy: 0, ox: 0, dx: replicate(0, len(id)) } {
+    (bn, ch, oy, ox, dx) ~> if bn < n {
+      do {
+        gv :: gd[((bn * c + ch) * h_out + oy) * w_out + ox]
+        scan :: while { ky: 0, kx: 0, bi: -1, bv: 0 } {
+          (ky, kx, bi, bv) ~> if ky < k_h {
+            do {
+              iy0 :: oy * s_h + ky
+              ix0 :: ox * s_w + kx
+              valid :: iy0 >= p_h && iy0 - p_h < h && ix0 >= p_w && ix0 - p_w < w
+              off :: ((bn * c + ch) * h + (iy0 - p_h)) * w + (ix0 - p_w)
+              upd :: if valid && (bi == -1 || id[off] > bv) {
+                ({ bi: off, bv: id[off] })
+              } else { ({ bi: bi, bv: bv }) }
+              nkx :: if kx + 1 < k_w { kx + 1 } else { 0 }
+              nky :: if kx + 1 < k_w { ky } else { ky + 1 }
+              { state: { ky: nky, kx: nkx, bi: upd.bi, bv: upd.bv } }
+            }
+          } else { { out: { bi: bi } } }
+        }
+        dxn :: set(dx, scan.bi, dx[scan.bi] + gv)
+        nox :: if ox + 1 < w_out { ox + 1 } else { 0 }
+        noy :: if ox + 1 < w_out { oy } else { if oy + 1 < h_out { oy + 1 } else { 0 } }
+        nch :: if ox + 1 < w_out || oy + 1 < h_out { ch } else { ch + 1 }
+        nbn :: if ox + 1 < w_out || oy + 1 < h_out || ch + 1 < c { bn } else { bn + 1 }
+        { state: { bn: nbn, ch: nch, oy: noy, ox: nox, dx: dxn } }
+      }
+    } else { { out: dx } }
+  }
+  ({ input: wire(ish, dx) })
+}

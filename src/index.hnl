@@ -65,15 +65,23 @@ from "./conv.hnl" import conv2d_backward as __conv2d_backward
 export conv2d := __conv2d
 export conv2d_backward := __conv2d_backward
 from "./conv.hnl" import max_pool as __max_pool
+from "./conv.hnl" import max_pool_backward as __max_pool_backward
 export max_pool := __max_pool
+export max_pool_backward := __max_pool_backward
 from "./norm.hnl" import batch_norm as __batch_norm
 export batch_norm := __batch_norm
 from "./shape_ops.hnl" import reshape as __reshape
+from "./shape_ops.hnl" import reshape_backward as __reshape_backward
 export reshape := __reshape
+export reshape_backward := __reshape_backward
 from "./shape_ops.hnl" import transpose as __transpose
+from "./shape_ops.hnl" import transpose_backward as __transpose_backward
 export transpose := __transpose
+export transpose_backward := __transpose_backward
 from "./shape_ops.hnl" import concat as __concat
+from "./shape_ops.hnl" import concat_backward as __concat_backward
 export concat := __concat
+export concat_backward := __concat_backward
 from "./norm.hnl" import batch_norm_backward as __batch_norm_backward
 export batch_norm_backward := __batch_norm_backward
 from "./norm.hnl" import derive as __derive
@@ -102,10 +110,14 @@ export ltensor := {
   conv2d: __conv2d,
   conv2d_backward: __conv2d_backward,
   max_pool: __max_pool,
+  max_pool_backward: __max_pool_backward,
   batch_norm: __batch_norm,
   reshape: __reshape,
+  reshape_backward: __reshape_backward,
   transpose: __transpose,
+  transpose_backward: __transpose_backward,
   concat: __concat,
+  concat_backward: __concat_backward,
   batch_norm_backward: __batch_norm_backward,
   derive: __derive
 }
