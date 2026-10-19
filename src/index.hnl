@@ -20,11 +20,12 @@
 --- Values: ops consume and produce the *wire form*
 ---   {"__tensor__": {"shape": [d, ...], "data": [x, ...], "dtype": "f64"}}
 --- — the tagged plain object that crosses the `Function` boundary.
---- Opaque `TaggedValue::Tensor` inputs (a host op's result) are
---- normalized through `"tensor.shape"`/`"tensor.to_list"` at op entry
---- — the only host calls in the package; on wire-record inputs there
---- are none. See README for the expressibility findings (the while-
---- boundary decode, the Tensor opacity floor, reserved names).
+--- Opaque `TaggedValue::Tensor` inputs (a host op's result) read the
+--- same wire record through the kernel's tagged-object view
+--- (`TaggedValue::object_view`) — `t.__tensor__.shape` projects on
+--- both representations, so the package makes **no host calls at
+--- all**. See README for the expressibility findings (the
+--- capture-boundary decode, reserved names).
 ---
 --- `from "lib-tensor" import ltensor` binds the whole surface; each op
 --- mirrors its host-tensor namesake's signature 1:1.

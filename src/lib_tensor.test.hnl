@@ -3,11 +3,14 @@
 ---
 --- Representation note: lib ops return the wire record
 --- `{"__tensor__": …}` where host ops return the kernel `Tensor`
---- variant — the two are `==`-distinct TaggedValues, so equality is
---- asserted through `tensor.to_list` (the host projection accepts the
---- wire form on decode). `assert` compares with `=`; `.hnl` numeric
+--- variant — the two are `=`-distinct variants (variant-structural
+--- equality), so equality is asserted through `tensor.to_list` (the
+--- host projection accepts the wire form on decode). `.hnl` numeric
 --- equality is int/float-insensitive (`1 == 1.0`), matching the
---- wire's f64 canonicalization.
+--- wire's f64 canonicalization. Inside the ops, the two
+--- representations are interchangeable — the tagged-object view
+--- (`TaggedValue::object_view`) projects a `Tensor` through its wire
+--- record, so `t.__tensor__.data` destructures either form.
 ---
 --- Host-dependence: this suite calls `tensor.*` — like host-tensor's
 --- own `src/tensor.test.hnl` it fails as `call_host: function
