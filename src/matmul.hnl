@@ -10,7 +10,9 @@
 --- odometer produces.
 
 from "./internal/helpers.hnl" import { die, len, product, unravel }
-from "./codec.hnl" import { wire, as_wire }
+from "./codec.hnl" import { wire, as_wire, wire_shape, wire_data }
+from "./shape_ops.hnl" import { transpose }
+from "./elementwise.hnl" import { unbroadcast }
 
 export matmul := (a, b) ~> do {
   wa :: as_wire(a)
@@ -52,4 +54,27 @@ export matmul := (a, b) ~> do {
     } else { { out: acc } }
   }
   wire(osh, ds)
+}
+
+--- `tensor.matmul_backward` — the adjoint `da = g·bᵀ`, `db = aᵀ·g`
+--- (the host's `MatmulBackward`): the last two axes transpose per batch,
+--- and each grad is unbroadcast over `B` back to its operand's shape —
+--- a rank-2 or `B = 1` operand's grad sums across the broadcast batches.
+export matmul_backward := (a, b, g) ~> do {
+  wa :: as_wire(a)
+  wb :: as_wire(b)
+  wg :: as_wire(g)
+  ash :: wa.__tensor__.shape
+  bsh :: wb.__tensor__.shape
+  gsh :: wg.__tensor__.shape
+  osh :: wire_shape(matmul(wa, wb))
+  check :: if gsh == osh { true } else {
+    die("tensor.matmul_backward: grad_out shape != matmul output")
+  }
+  bt :: transpose(wb, len(bsh) - 2, len(bsh) - 1)
+  at :: transpose(wa, len(ash) - 2, len(ash) - 1)
+  da :: matmul(wg, bt)
+  db :: matmul(at, wg)
+  ({ a: wire(ash, unbroadcast(wire_data(da), wire_shape(da), ash)),
+     b: wire(bsh, unbroadcast(wire_data(db), wire_shape(db), bsh)) })
 }

@@ -9,7 +9,7 @@
 --- and each side's stride map (a `0` stride where the side's dim was
 --- `1` or missing) projects it back into that input's flat data.
 
-from "./internal/helpers.hnl" import { die, len, product, replicate, strides, unravel, dot }
+from "./internal/helpers.hnl" import { die, len, product, replicate, set, slice, strides, unravel, dot }
 from "./codec.hnl" import { wire, as_wire, wire_shape, wire_data }
 
 --- The broadcast of two shapes: pad the shorter with leading `1`s, then
@@ -92,3 +92,91 @@ export sub := (a, b) ~> elementwise(a, b, (x, y) ~> x - y)
 --- the `serde_json` wire then carries `null`, which both sides reject
 --- on re-decode identically).
 export div := (a, b) ~> elementwise(a, b, (x, y) ~> x / y)
+
+--- `bc_data(ds, sh, osh)` — materialize `ds` (flat, shape `sh`)
+--- broadcast to `osh`: the odometer + 0-stride stretch, mirroring
+--- `broadcast_to` in host-tensor's elementwise.rs.
+bc_data := (ds, sh, osh) ~> do {
+  st :: broadcast_strides(sh, osh)
+  n :: product(osh)
+  while { i: 0, acc: [] } {
+    (i, acc) ~> if i < n {
+      { state: { i: i + 1, acc: [...acc, ds[dot(unravel(osh, i), st)]] } }
+    } else { { out: acc } }
+  }
+}
+
+--- `unbroadcast(gd, gsh, tsh)` — the adjoint of broadcasting: sum the
+--- flat grad `gd` (shape `gsh`) down to `tsh`, summing out leading dims
+--- `tsh` lacks and any dim where `tsh` is `1` but `gsh` is larger
+--- (mirrors `unbroadcast` in host-tensor's elementwise.rs).
+export unbroadcast := (gd, gsh, tsh) ~> do {
+  check :: if len(tsh) <= len(gsh) { true } else {
+    die("unbroadcast: target rank exceeds grad rank")
+  }
+  off :: len(gsh) - len(tsh)
+  tst :: strides(tsh)
+  -- masked strides: a `1` dim sums out (contributes stride 0).
+  mst :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(tsh) {
+      do {
+        s :: if tsh[i] == 1 { 0 } else { tst[i] }
+        { state: { i: i + 1, acc: [...acc, s] } }
+      }
+    } else { { out: acc } }
+  }
+  n :: product(gsh)
+  while { i: 0, acc: replicate(0, product(tsh)) } {
+    (i, acc) ~> if i < n {
+      do {
+        ti :: dot(slice(unravel(gsh, i), off, len(tsh)), mst)
+        { state: { i: i + 1, acc: set(acc, ti, acc[ti] + gd[i]) } }
+      }
+    } else { { out: acc } }
+  }
+}
+
+--- The driver behind the elementwise adjoints: `g` must be the primal
+--- output's shape (the broadcast of `a` and `b`); each operand's grad
+--- is its per-element expression over the broadcast space — `fa`/`fb`
+--- take `(a_elem, b_elem, g_elem)` — then `unbroadcast` back to the
+--- operand's shape. Returns `{a, b}` (the host's `elementwise_backward`).
+elt_bwd := (a, b, g, fa, fb) ~> do {
+  wa :: as_wire(a)
+  wb :: as_wire(b)
+  wg :: as_wire(g)
+  ash :: wa.__tensor__.shape
+  bsh :: wb.__tensor__.shape
+  gsh :: wg.__tensor__.shape
+  osh :: broadcast_shape(ash, bsh)
+  check :: if gsh == osh { true } else {
+    die("elementwise backward: grad_out shape != broadcast output")
+  }
+  ad :: bc_data(wa.__tensor__.data, ash, osh)
+  bd :: bc_data(wb.__tensor__.data, bsh, osh)
+  gd :: wg.__tensor__.data
+  n :: product(osh)
+  ga :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < n {
+      { state: { i: i + 1, acc: [...acc, fa(ad[i], bd[i], gd[i])] } }
+    } else { { out: acc } }
+  }
+  gb :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < n {
+      { state: { i: i + 1, acc: [...acc, fb(ad[i], bd[i], gd[i])] } }
+    } else { { out: acc } }
+  }
+  ({ a: wire(ash, unbroadcast(ga, osh, ash)), b: wire(bsh, unbroadcast(gb, osh, bsh)) })
+}
+
+--- `tensor.add_backward` — `da = g`, `db = g`, each unbroadcast.
+export add_backward := (a, b, g) ~> elt_bwd(a, b, g, (x, y, gv) ~> gv, (x, y, gv) ~> gv)
+
+--- `tensor.mul_backward` — `da = g·b`, `db = g·a`, unbroadcast.
+export mul_backward := (a, b, g) ~> elt_bwd(a, b, g, (x, y, gv) ~> gv * y, (x, y, gv) ~> gv * x)
+
+--- `tensor.sub_backward` — `da = g`, `db = −g`, unbroadcast.
+export sub_backward := (a, b, g) ~> elt_bwd(a, b, g, (x, y, gv) ~> gv, (x, y, gv) ~> 0 - gv)
+
+--- `tensor.div_backward` — `da = g/b`, `db = −g·a/b²`, unbroadcast.
+export div_backward := (a, b, g) ~> elt_bwd(a, b, g, (x, y, gv) ~> gv / y, (x, y, gv) ~> 0 - (gv * x) / (y * y))

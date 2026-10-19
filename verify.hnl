@@ -65,6 +65,13 @@ do {
     check("derive_null", lt.derive("tensor.conv2d"), tensor.derive("tensor.conv2d")),
     check("bn_bwd_beta", tensor.to_list((lt.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).beta), tensor.to_list((tensor.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).beta)),
     check("bn_bwd_input", tensor.to_list((lt.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).input), tensor.to_list((tensor.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).input)),
-    check("bn_bwd_gamma", tensor.to_list((lt.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).gamma), tensor.to_list((tensor.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).gamma))
+    check("bn_bwd_gamma", tensor.to_list((lt.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).gamma), tensor.to_list((tensor.batch_norm_backward(conv_x, bn_g, bn_b, bn_m, bn_v, grad, 0)).gamma)),
+    check("add_bwd_b", tensor.to_list((lt.add_backward(x23, x23b, x23)).b), tensor.to_list((tensor.add_backward(x23, x23b, x23)).b)),
+    check("mul_bwd_a", tensor.to_list((lt.mul_backward(x23, x23b, x23)).a), tensor.to_list((tensor.mul_backward(x23, x23b, x23)).a)),
+    check("sub_bwd_b", tensor.to_list((lt.sub_backward(x23, x23b, x23)).b), tensor.to_list((tensor.sub_backward(x23, x23b, x23)).b)),
+    check("div_bwd_b", tensor.to_list((lt.div_backward(x23, x23b, x23)).b), tensor.to_list((tensor.div_backward(x23, x23b, x23)).b)),
+    check("mm_bwd_a", tensor.to_list((lt.matmul_backward(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]), tensor.from_list([[1, 0], [0, 1]]))).a), tensor.to_list((tensor.matmul_backward(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]), tensor.from_list([[1, 0], [0, 1]]))).a)),
+    check("conv_bwd_input", tensor.to_list((lt.conv2d_backward(conv_x, conv_w, grad)).input), tensor.to_list((tensor.conv2d_backward(conv_x, conv_w, grad)).input)),
+    check("conv_bwd_bias", tensor.to_list((lt.conv2d_backward(conv_x, conv_w, grad, tensor.zeros([2]))).bias), tensor.to_list((tensor.conv2d_backward(conv_x, conv_w, grad, tensor.zeros([2]))).bias))
   ]
 }

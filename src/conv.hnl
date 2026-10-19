@@ -6,7 +6,7 @@
 --- short) selects the default. `stride`/`padding`/`kernel` decode the
 --- int-or-`[h, w]`-pair convention through `pair_or`.
 
-from "./internal/helpers.hnl" import { die, len, product, unravel }
+from "./internal/helpers.hnl" import { die, len, product, replicate, set, unravel }
 from "./codec.hnl" import { wire, as_wire }
 
 --- `opt(rest, i)` — the optional argument at `rest[i]`, `null` when
@@ -211,4 +211,116 @@ export max_pool := (input, ...rest) ~> do {
     } else { { out: acc } }
   }
   wire(osh, ds)
+}
+
+--- `tensor.conv2d_backward` — the adjoint, mirroring the host's
+--- `Conv2dBackward`: `conv2d_backward(input, weight, grad_out, bias?,
+--- stride?, padding?, groups?)` scatters `grad_out` back through the
+--- primal's index arithmetic — `dx` is the transposed convolution,
+--- `dw` the input–gradient correlation, `db` the per-channel grad sum
+--- (emitted only when `bias` was given). Same validation order and
+--- loop nesting as `conv2d`.
+export conv2d_backward := (input, weight, grad_out, ...rest) ~> do {
+  wi :: as_wire(input)
+  wt :: as_wire(weight)
+  wg :: as_wire(grad_out)
+  ish :: wi.__tensor__.shape
+  wsh :: wt.__tensor__.shape
+  gsh :: wg.__tensor__.shape
+  check_rank :: if len(ish) == 4 && len(wsh) == 4 && len(gsh) == 4 { true } else {
+    die("tensor.conv2d_backward: expected rank-4 input, weight, and grad_out")
+  }
+  bias :: match opt_at(rest, 0) {
+    null: null,
+    b: wire_data_of(as_wire(b))
+  }
+  sp :: pair_or(opt_at(rest, 1), [1, 1])
+  pp :: pair_or(opt_at(rest, 2), [0, 0])
+  groups :: pos_int_or(opt_at(rest, 3), 1)
+  s_h :: sp[0]
+  s_w :: sp[1]
+  p_h :: pp[0]
+  p_w :: pp[1]
+  check_stride :: if s_h > 0 && s_w > 0 { true } else {
+    die("tensor.conv2d_backward: stride must be positive")
+  }
+  n :: ish[0]
+  c_in :: ish[1]
+  h :: ish[2]
+  w :: ish[3]
+  c_out :: wsh[0]
+  c_in_w :: wsh[1]
+  k_h :: wsh[2]
+  k_w :: wsh[3]
+  check_groups :: if c_in % groups == 0 && c_out % groups == 0 { true } else {
+    die("tensor.conv2d_backward: groups must divide both C_in and C_out")
+  }
+  c_in_g :: c_in / groups
+  c_out_g :: c_out / groups
+  check_cin :: if c_in_w == c_in_g { true } else {
+    die("tensor.conv2d_backward: weight channels != C_in/groups")
+  }
+  check_bias :: if bias == null || len(bias) == c_out { true } else {
+    die("tensor.conv2d_backward: bias shape != [C_out]")
+  }
+  check_fit :: if h + 2 * p_h >= k_h && w + 2 * p_w >= k_w { true } else {
+    die("tensor.conv2d_backward: kernel exceeds the padded input")
+  }
+  h_out :: (h + 2 * p_h - k_h) / s_h + 1
+  w_out :: (w + 2 * p_w - k_w) / s_w + 1
+  check_grad :: if gsh == [n, c_out, h_out, w_out] { true } else {
+    die("tensor.conv2d_backward: grad_out shape != conv2d output")
+  }
+  id :: wi.__tensor__.data
+  wd :: wt.__tensor__.data
+  gd :: wg.__tensor__.data
+  -- For each output position (bn, co, oy, ox): gv = g[bn,co,oy,ox] is
+  -- scattered into dx[iy,ix] += gv·w[co,ic,ky,kx] and accumulated into
+  -- dw[co,ic,ky,kx] += gv·x[iy,ix] over the valid taps.
+  r :: while { bn: 0, gg: 0, oc: 0, oy: 0, ox: 0,
+               dx: replicate(0, len(id)), dw: replicate(0, len(wd)),
+               db: replicate(0, c_out) } {
+    (bn, gg, oc, oy, ox, dx, dw, db) ~> if bn < n {
+      do {
+        co :: gg * c_out_g + oc
+        gv :: gd[((bn * c_out + co) * h_out + oy) * w_out + ox]
+        dbn :: set(db, co, db[co] + gv)
+        rr :: while { ic: 0, ky: 0, kx: 0, dxa: dx, dwa: dw } {
+          (ic, ky, kx, dxa, dwa) ~> if ic < c_in_g {
+            do {
+              ci :: gg * c_in_g + ic
+              iy0 :: oy * s_h + ky
+              ix0 :: ox * s_w + kx
+              upd :: if iy0 >= p_h && iy0 - p_h < h && ix0 >= p_w && ix0 - p_w < w {
+                do {
+                  iy :: iy0 - p_h
+                  ix :: ix0 - p_w
+                  ii :: ((bn * c_in + ci) * h + iy) * w + ix
+                  wj :: ((co * c_in_g + ic) * k_h + ky) * k_w + kx
+                  ({ dxa: set(dxa, ii, dxa[ii] + gv * wd[wj]),
+                     dwa: set(dwa, wj, dwa[wj] + gv * id[ii]) })
+                }
+              } else { ({ dxa: dxa, dwa: dwa }) }
+              nkx :: if kx + 1 < k_w { kx + 1 } else { 0 }
+              nky :: if kx + 1 < k_w { ky } else { if ky + 1 < k_h { ky + 1 } else { 0 } }
+              nic :: if kx + 1 < k_w || ky + 1 < k_h { ic } else { ic + 1 }
+              { state: { ic: nic, ky: nky, kx: nkx, dxa: upd.dxa, dwa: upd.dwa } }
+            }
+          } else { { out: { dxa: dxa, dwa: dwa } } }
+        }
+        nox :: if ox + 1 < w_out { ox + 1 } else { 0 }
+        noy :: if ox + 1 < w_out { oy } else { if oy + 1 < h_out { oy + 1 } else { 0 } }
+        noc :: if ox + 1 < w_out || oy + 1 < h_out { oc } else { if oc + 1 < c_out_g { oc + 1 } else { 0 } }
+        ngg :: if ox + 1 < w_out || oy + 1 < h_out || oc + 1 < c_out_g { gg } else { gg + 1 }
+        nbn :: if ox + 1 < w_out || oy + 1 < h_out || oc + 1 < c_out_g || gg + 1 < groups { bn } else { bn + 1 }
+        { state: { bn: nbn, gg: ngg, oc: noc, oy: noy, ox: nox,
+                   dx: rr.dxa, dw: rr.dwa, db: dbn } }
+      }
+    } else { { out: { dx: dx, dw: dw, db: db } } }
+  }
+  if bias == null {
+    ({ input: wire(ish, r.dx), weight: wire(wsh, r.dw) })
+  } else {
+    ({ input: wire(ish, r.dx), weight: wire(wsh, r.dw), bias: wire([c_out], r.db) })
+  }
 }

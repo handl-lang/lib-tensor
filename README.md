@@ -13,11 +13,10 @@ natively — the **transparent spec** to host-tensor's **opaque atoms**.
 | a rewrite sees | `tensor.conv2d(x, w, …)` as an atomic leaf | the broadcast odometer, the NCHW accumulation loops, the per-channel affine — structure it can look *inside* |
 | values | `TaggedValue::Tensor` kernel variant | the `{"__tensor__": …}` wire record |
 
-The two expose the same forward surface — host-tensor is now 24 ops and
-this package mirrors 19 of them: the six newer `*_backward` adjoints
-(`add`/`sub`/`mul`/`div`/`matmul`/`conv2d`) are pending mirrors
-(`elementwise.hnl`/`matmul.hnl`/`conv.hnl`), blocked on a composed host
-to run `verify.hnl` against. (`host-tensor/src/index.hnl` is
+The two expose the same 24-op surface — the `*_backward` adjoints
+mirror host-tensor 1:1 (`elementwise.hnl`/`matmul.hnl`/`conv.hnl`), and
+`verify.hnl` checks all of them against the host under a composed
+runtime. (`host-tensor/src/index.hnl` is
 the interface contract; `src/ops/` the reference impl this package
 mirrors line-for-line — same file map on both sides:
 `codec`/`elementwise`/`matmul`/`conv`/`norm`/`shape_ops`, with `derive`
@@ -49,7 +48,7 @@ module composed). Every op **returns the wire record** — transparent
 structure the e-graph can read — which any host op will decode back to
 a `Tensor` on the next `tensor.*` call.
 
-## The surface (19 ops, mirroring host-tensor)
+## The surface (24 ops, mirroring host-tensor 1:1)
 
 `zeros`, `ones`, `from_list`, `to_list`, `shape` — codec/boundary ops
 (pure over wire records; the two projections delegate to the host on

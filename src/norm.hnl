@@ -123,11 +123,18 @@ export batch_norm_backward := (input, gamma, beta, mean, var, grad_out, ...rest)
 
 --- `tensor.derive` — the registered-pairs table, not autodiff: the
 --- adjoint op name for `name`, or `null`. A bare local name qualifies
---- to `tensor.<name>`; the only pair so far is
---- `tensor.batch_norm → tensor.batch_norm_backward`. (A non-string
+--- to `tensor.<name>`; seven pairs are registered — the elementwise
+--- four, `matmul`, `conv2d`, and `batch_norm` — mirroring
+--- `DERIV_PAIRS` in host-tensor's ops/derive.rs. (A non-string
 --- argument flows through as `null` here — the host op raises a
 --- TypeMismatch instead; the divergence is documented.)
 export derive := (name) ~>
+  if name == "add" || name == "tensor.add" { "tensor.add_backward" } else {
+  if name == "mul" || name == "tensor.mul" { "tensor.mul_backward" } else {
+  if name == "sub" || name == "tensor.sub" { "tensor.sub_backward" } else {
+  if name == "div" || name == "tensor.div" { "tensor.div_backward" } else {
+  if name == "matmul" || name == "tensor.matmul" { "tensor.matmul_backward" } else {
+  if name == "conv2d" || name == "tensor.conv2d" { "tensor.conv2d_backward" } else {
   if name == "batch_norm" || name == "tensor.batch_norm" {
     "tensor.batch_norm_backward"
-  } else { null }
+  } else { null } } } } } } }
