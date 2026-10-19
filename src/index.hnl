@@ -1,11 +1,14 @@
 --- lib-tensor — the transparent tensor-op spec.
 ---
---- `.hnl` source implementations of the 18-op `tensor.*` surface
+--- `.hnl` source implementations of the `tensor.*` surface
 --- host-tensor provides as native atoms (host-tensor/src/index.hnl is
 --- the interface contract; src/ops/ the reference impl — same file map:
 --- codec/elementwise/matmul/conv/norm/shape_ops on both sides, with
 --- derive split out of norm in Rust since DERIV_PAIRS spans domains).
---- The two
+--- The host surface is now 24 ops; this package mirrors the 18 forward
+--- ops + `batch_norm_backward`/`derive` — the six newer `*_backward`
+--- adjoints (`add`/`sub`/`mul`/`div`/`matmul`/`conv2d`) are pending
+--- mirrors in `elementwise.hnl`/`matmul.hnl`/`conv.hnl`. The two
 --- packages are a design pair:
 ---
 ---   host-tensor — opaque atoms for fast eval: `tensor.*` calls are
