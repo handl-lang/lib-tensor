@@ -67,7 +67,7 @@ test_concat_axis0 := assert tensor.to_list(lt.concat([tensor.from_list([[1, 2], 
 test_concat_axis1 := assert tensor.to_list(lt.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5], [6]])], 1)) = [[1, 2, 5], [3, 4, 6]]
 
 test_derive := assert lt.derive("batch_norm") = "tensor.batch_norm_backward"
-test_derive_unpaired := assert lt.derive("tensor.conv2d") = null
+test_derive_unpaired := assert lt.derive("tensor.max_pool") = null
 
 test_batch_norm_backward := assert tensor.to_list((lt.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).beta) = [1.5, 3.5]
 test_batch_norm_backward_input := assert tensor.to_list((lt.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).input) = tensor.to_list((tensor.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).input)
