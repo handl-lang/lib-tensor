@@ -1,5 +1,5 @@
 --- shape_ops.hnl — `reshape`/`transpose`/`concat`: the re-labeling
---- ops, spec-mirroring host-tensor/src/ops.rs.
+--- ops, spec-mirroring host-tensor/src/ops/shape_ops.rs.
 
 from "./internal/helpers.hnl" import { die, len, product, strides, unravel, dot, slice }
 from "./codec.hnl" import { wire, as_wire, wire_shape, wire_data }

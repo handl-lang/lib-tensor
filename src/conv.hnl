@@ -1,5 +1,5 @@
 --- conv.hnl — `conv2d` / `max_pool`: the NCHW spatial ops, spec-mirroring
---- host-tensor/src/ops.rs `Conv2d` and `MaxPool`.
+--- host-tensor/src/ops/conv.rs `Conv2d` and `MaxPool`.
 ---
 --- Optional trailing parameters are positional like the host ops: a
 --- `null` (or a missing argument — the `...rest` list simply runs

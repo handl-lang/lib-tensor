@@ -1,5 +1,5 @@
 --- matmul.hnl — `matmul` `(m×k)·(k×n)`, the spec mirror of
---- host-tensor/src/ops.rs `Matmul`.
+--- host-tensor/src/ops/matmul.rs `Matmul`.
 ---
 --- Rank-2 × rank-2 is the plain matrix product; a rank-3 `[B, m, k]`
 --- or `[B, k, n]` side batches it to `[B, m, n]`, with the batch dim

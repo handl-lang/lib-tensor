@@ -2,7 +2,7 @@
 ---
 --- A tensor at the `Function` boundary is the tagged plain object
 ---   {"__tensor__": {"shape": [d, ...], "data": [x, ...], "dtype": "f64"}}
---- (host-tensor/src/ops.rs `encode_tensor`; ADR-0083 §2.1): `shape` is
+--- (host-tensor/src/ops/codec.rs `encode_tensor`; ADR-0083 §2.1): `shape` is
 --- the extent per axis, `data` the flat row-major payload of length
 --- `product(shape)`, `dtype` the element type (`"f64"` only).
 ---

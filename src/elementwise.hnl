@@ -1,7 +1,8 @@
 --- elementwise.hnl — `add`/`mul`/`sub`/`div` with numpy broadcasting.
 ---
 --- The spec mirror of `broadcast_elementwise` in
---- host-tensor/src/ops.rs: align trailing dims, a `1`-dim stretches, a
+--- host-tensor/src/ops/elementwise.rs: align trailing dims, a `1`-dim
+--- stretches, a
 --- missing leading dim counts as `1`; a dim pair that differs with
 --- neither side `1` is an error (`die`). The output is produced in
 --- row-major order — flat position `k` unravels to an index tuple,

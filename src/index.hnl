@@ -2,7 +2,10 @@
 ---
 --- `.hnl` source implementations of the 18-op `tensor.*` surface
 --- host-tensor provides as native atoms (host-tensor/src/index.hnl is
---- the interface contract; src/ops.rs the reference impl). The two
+--- the interface contract; src/ops/ the reference impl — same file map:
+--- codec/elementwise/matmul/conv/norm/shape_ops on both sides, with
+--- derive split out of norm in Rust since DERIV_PAIRS spans domains).
+--- The two
 --- packages are a design pair:
 ---
 ---   host-tensor — opaque atoms for fast eval: `tensor.*` calls are

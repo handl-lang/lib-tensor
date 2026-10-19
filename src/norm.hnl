@@ -1,6 +1,6 @@
 --- norm.hnl — `batch_norm`, `batch_norm_backward`, `derive`:
---- spec-mirroring host-tensor/src/ops.rs `BatchNorm`,
---- `BatchNormBackward`, and `Derive`.
+--- spec-mirroring host-tensor/src/ops/norm.rs `BatchNorm` and
+--- `BatchNormBackward`, and `derive.rs` `Derive`.
 
 from "./internal/helpers.hnl" import { die, len, replicate, set }
 from "./codec.hnl" import { wire, as_wire }

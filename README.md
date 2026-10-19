@@ -14,10 +14,13 @@ natively — the **transparent spec** to host-tensor's **opaque atoms**.
 | values | `TaggedValue::Tensor` kernel variant | the `{"__tensor__": …}` wire record |
 
 The two expose the same 18-op surface (`host-tensor/src/index.hnl` is
-the interface contract; `src/ops.rs` the reference impl this package
-mirrors line-for-line — including the exact f64 expression order, so
-`batch_norm`'s `x·g + (β − μ·g)` and the backward pass's
-`dγ += g·x̂` are bit-identical, not just mathematically equal).
+the interface contract; `src/ops/` the reference impl this package
+mirrors line-for-line — same file map on both sides:
+`codec`/`elementwise`/`matmul`/`conv`/`norm`/`shape_ops`, with `derive`
+split out of `norm` in Rust since `DERIV_PAIRS` spans domains — and the
+exact f64 expression order, so `batch_norm`'s `x·g + (β − μ·g)` and the
+backward pass's `dγ += g·x̂` are bit-identical, not just mathematically
+equal).
 
 ```hnl
 from "lib-tensor" import ltensor as lt
