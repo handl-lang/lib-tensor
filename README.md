@@ -172,3 +172,7 @@ arrow dialect), so the executable path is a host that does. catopt's
 test gate); the sources here are all arrow-dialect, so the gate's
 `is_canonical` detector skips them by design — `verify.hnl` is the
 honest executable check until a tensor-composing `hnl test` exists.
+
+## License
+
+MIT.
