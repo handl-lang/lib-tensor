@@ -16,9 +16,7 @@ natively — the **transparent spec** to host-tensor's **opaque atoms**.
 The two expose the same op surface — the `*_backward` adjoints
 mirror host-tensor 1:1 (`elementwise.hnl`/`matmul.hnl`/`conv.hnl`),
 and `verify.hnl` checks all of them against the host under a composed
-runtime. Three host ops are **pending port**: `tensor.linear`,
-`tensor.unsqueeze`, and `tensor.select` landed on host-tensor after
-this surface was written and have no `.hnl` counterpart yet. (`host-tensor/src/index.hnl` is
+runtime. (`host-tensor/src/index.hnl` is
 the interface contract; `src/ops/` the reference impl this package
 mirrors line-for-line — same file map on both sides:
 `codec`/`elementwise`/`matmul`/`conv`/`norm`/`shape_ops`, with `derive`
@@ -53,7 +51,7 @@ read either form. The package makes **no host calls** — the old
 literal-string `"tensor.shape"`/`"tensor.to_list"` projection arms
 are gone.
 
-## The surface (28 ops — host-tensor's 31 minus the pending ports)
+## The surface (31 ops — host-tensor's full surface)
 
 `zeros`, `ones`, `from_list`, `to_list`, `shape` — codec/boundary ops
 (pure over wire records; `zeros`/`ones`/`from_list` construct the
@@ -62,10 +60,15 @@ directly — `data` may hold ints where the host emits `0.0`, an
 int/float-insensitive difference that never survives the wire).
 `add`, `mul`, `sub`, `div` — elementwise with numpy broadcasting.
 `matmul` — `(m×k)·(k×n)`, rank-3 batch broadcasting.
+`linear` — `F.linear`: `x @ wᵀ + b`, the `(out, in)` weight rank-2
+checked up front, the bias broadcast by the elementwise `add`.
 `conv2d`, `max_pool` — NCHW spatial loops with the positional-optional
 `null`-means-default convention and int-or-`[h,w]` pair decoding.
 `batch_norm` — eval-mode per-channel affine.
 `reshape`, `transpose`, `concat` — relabeling ops.
+`unsqueeze`, `select` — axis insert/drop with torch's
+`rem_euclid`-wrapped dims (a new `rem_euclid` helper in
+`internal/helpers.hnl` — `%` alone is the C-style remainder).
 `batch_norm_backward` — the `{input, gamma, beta}` grads record.
 `derive` — the registered-pairs table (`"batch_norm"` →
 `"tensor.batch_norm_backward"`, else `null`).
@@ -90,7 +93,7 @@ answer to both.
    `Resource` project `{"__bytes__": …}`/`{"__sym__": …}`/
    `{"__resource__": …}` the same way; `Pair`/`Either`/`Arrow` keep
    their existing `.hnl` projections and do not present a record
-   view. With the seam, the whole spec — all 28 ops — is pure `.hnl`
+   view. With the seam, the whole spec — all 31 ops — is pure `.hnl`
    with zero host calls (construction stays in-language too: the wire
    record *is* the tensor's encoding).
 
@@ -145,10 +148,10 @@ answer to both.
 src/index.hnl            facade: every op + the `ltensor` record
 src/codec.hnl            the wire form, `as_wire`, from_list/to_list/shape/zeros/ones
 src/elementwise.hnl      broadcast_shape/strides + add/mul/sub/div
-src/matmul.hnl           matmul
+src/matmul.hnl           matmul + linear
 src/conv.hnl             conv2d + max_pool (optional-param decoding)
 src/norm.hnl             batch_norm + batch_norm_backward + derive
-src/shape_ops.hnl        reshape + transpose + concat
+src/shape_ops.hnl        reshape + transpose + unsqueeze + select + concat
 src/internal/helpers.hnl list/stride/odometer machinery, `die`
 src/lib_tensor.test.hnl  the .test.hnl spec suite (host-dependent)
 verify.hnl               the same suite as a runnable verdict program
@@ -167,7 +170,7 @@ arrow dialect), so the executable path is a host that does. catopt's
 
 ```bash
 <catopt>/target/debug/hnl-run --project . verify.hnl
-# → [{"name":"zeros","ok":true}, …] — 44 checks, all ok
+# → [{"name":"zeros","ok":true}, …] — 51 checks, all ok
 ```
 
 `ci.sh` runs `scripts/hnl-gate.sh` (the shared `hnl` typecheck/lint/

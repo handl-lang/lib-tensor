@@ -112,6 +112,12 @@ export unravel := (shape, k) ~> do {
   }
 }
 
+--- `rem_euclid(n, m)` — the non-negative remainder for `m > 0`
+--- (`dim.rem_euclid(rank+1)` in the host's `unsqueeze`/`select`):
+--- `%` alone is the C-style remainder (sign of the dividend), so the
+--- negative case folds back by `m`.
+export rem_euclid := (n, m) ~> (n % m + m) % m
+
 --- `dot(ix, st)` — `Σ ix[d]·st[d]`, the flat offset of index tuple `ix`
 --- under strides `st` (a `0` stride is the broadcast stretch).
 export dot := (ix, st) ~> while { i: 0, acc: 0 } {

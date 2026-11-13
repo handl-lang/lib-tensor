@@ -1,7 +1,7 @@
 --- shape_ops.hnl — `reshape`/`transpose`/`concat`: the re-labeling
 --- ops, spec-mirroring host-tensor/src/ops/shape_ops.rs.
 
-from "./internal/helpers.hnl" import { die, len, product, strides, unravel, dot, slice }
+from "./internal/helpers.hnl" import { die, len, product, strides, unravel, dot, slice, take, drop, rem_euclid }
 from "./codec.hnl" import { wire, as_wire, wire_shape, wire_data }
 
 --- `shapes_of(xs)` / `datas_of(xs)` — project every element's
@@ -75,6 +75,79 @@ export transpose := (t, d0, d1) ~> do {
           } else { { out: acc2 } }
         }
         { state: { i: i + 1, acc: [...acc, dst[dot(ix, stp)]] } }
+      }
+    } else { { out: acc } }
+  }
+  wire(osh, ds)
+}
+
+--- `tensor.unsqueeze` — insert a size-1 axis at `dim`; the payload is
+--- unchanged (a view, like `reshape`). `dim` wraps by
+--- `rem_euclid(rank + 1)` — torch semantics, matching the host's
+--- `d % (rank + 1)` typing rule, so an out-of-range `dim` wraps rather
+--- than refusing. No adjoint on the surface (the backward is `squeeze`,
+--- undeclared) — `derive` returns `null`.
+export unsqueeze := (t, dim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  check_int :: if dim % 1 == 0 { true } else {
+    die("tensor.unsqueeze: dim must be an integer")
+  }
+  d :: rem_euclid(dim, r + 1)
+  osh :: [...take(shp, d), 1, ...drop(shp, d)]
+  wire(osh, w.__tensor__.data)
+}
+
+--- `tensor.select` — drop axis `dim`, keeping only the `index`-th
+--- slice (torch `select`): rank drops by one (a rank-1 select yields a
+--- rank-0 scalar), the payload the gathered slice in row-major order.
+--- `dim` wraps by `rem_euclid(rank)`; `index` counts from the end when
+--- negative and refuses outside `[-size, size)` rather than silently
+--- wrapping. No adjoint on the surface (the backward is a scatter,
+--- undeclared) — `derive` returns `null`.
+export select := (t, dim, index) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  check_rank :: if r > 0 { true } else {
+    die("tensor.select: cannot select an axis of a rank-0 tensor")
+  }
+  check_int :: if dim % 1 == 0 && index % 1 == 0 { true } else {
+    die("tensor.select: dim and index must be integers")
+  }
+  d :: rem_euclid(dim, r)
+  size :: shp[d]
+  check_idx :: if index >= 0 - size && index < size { true } else {
+    die("tensor.select: index out of range for the axis extent")
+  }
+  i :: rem_euclid(index, size)
+  -- kept axes in input order; output axis j reads input axis kept[j].
+  kept :: while { k: 0, acc: [] } {
+    (k, acc) ~> if k < r {
+      { state: { k: k + 1, acc: if k == d { acc } else { [...acc, k] } } }
+    } else { { out: acc } }
+  }
+  osh :: while { j: 0, acc: [] } {
+    (j, acc) ~> if j < len(kept) {
+      { state: { j: j + 1, acc: [...acc, shp[kept[j]]] } }
+    } else { { out: acc } }
+  }
+  st :: strides(shp)
+  fixed :: i * st[d]
+  dst :: w.__tensor__.data
+  n :: product(osh)
+  ds :: while { p: 0, acc: [] } {
+    (p, acc) ~> if p < n {
+      do {
+        ix :: unravel(osh, p)
+        -- output tuple ix reads input offset fixed + Σ_j ix[j]·st[kept[j]]
+        off :: while { j: 0, a2: 0 } {
+          (j, a2) ~> if j < len(kept) {
+            { state: { j: j + 1, a2: a2 + ix[j] * st[kept[j]] } }
+          } else { { out: a2 } }
+        }
+        { state: { p: p + 1, acc: [...acc, dst[fixed + off]] } }
       }
     } else { { out: acc } }
   }

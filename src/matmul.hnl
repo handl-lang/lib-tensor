@@ -12,7 +12,7 @@
 from "./internal/helpers.hnl" import { die, len, product, unravel }
 from "./codec.hnl" import { wire, as_wire, wire_shape, wire_data }
 from "./shape_ops.hnl" import { transpose }
-from "./elementwise.hnl" import { unbroadcast }
+from "./elementwise.hnl" import { unbroadcast, add }
 
 export matmul := (a, b) ~> do {
   wa :: as_wire(a)
@@ -54,6 +54,20 @@ export matmul := (a, b) ~> do {
     } else { { out: acc } }
   }
   wire(osh, ds)
+}
+
+--- `tensor.linear` — `linear(x, w, b)` is torch's `F.linear`: `x @ wᵀ +
+--- b`. `w` is the `(out, in)` weight — rank-2 is checked before the
+--- product, matching the host's `Linear` — `x` any rank-2/3 `(*, in)`
+--- operand (rank-3 batches like `matmul`), and `b` the bias broadcast
+--- over the trailing axis by the same `broadcast_elementwise` the
+--- elementwise four use (`add` here). No adjoint on the surface
+--- (`linear_backward` is undeclared) — `derive` returns `null`.
+export linear := (x, w, b) ~> do {
+  check_w :: if len(wire_shape(w)) == 2 { true } else {
+    die("tensor.linear: weight must be rank-2 (out, in)")
+  }
+  add(matmul(x, transpose(w, 0, 1)), b)
 }
 
 --- `tensor.matmul_backward` — the adjoint `da = g·bᵀ`, `db = aᵀ·g`

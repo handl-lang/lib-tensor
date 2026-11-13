@@ -49,6 +49,9 @@ test_matmul_rect := assert tensor.to_list(lt.matmul(tensor.from_list([[1, 2, 3],
 test_matmul_batched := assert tensor.to_list(lt.matmul(tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]), tensor.from_list([[[3], [4]], [[5], [6]]]))) = [[[3], [4]], [[10], [12]]]
 test_matmul_batch_broadcast := assert tensor.to_list(lt.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]))) = [[[1, 2], [3, 4]], [[2, 4], [6, 8]]]
 
+test_linear := assert tensor.to_list(lt.linear(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[1, 0], [0, 1], [1, 1]]), tensor.from_list([10, 20, 30]))) = [[11, 22, 33], [13, 24, 37]]
+test_linear_batched := assert tensor.to_list(lt.linear(tensor.from_list([[[1, 2], [3, 4]]]), tensor.from_list([[1, 0], [0, 1], [1, 1]]), tensor.from_list([0, 0, 0]))) = [[[1, 2, 3], [3, 4, 7]]]
+
 test_conv2d_1x1 := assert tensor.to_list(lt.conv2d(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]))) = [[[[7, 10]], [[-1, -2]]]]
 test_conv2d_padding := assert tensor.to_list(lt.conv2d(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]]), null, null, 1)) = [[[[10, 10], [10, 10]]]]
 test_conv2d_stride_bias := assert tensor.to_list(lt.conv2d(tensor.from_list([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), tensor.from_list([[[[1, 1], [1, 1]]]]), tensor.from_list([10]), 2)) = [[[[22]]]]
@@ -63,6 +66,11 @@ test_batch_norm_default_eps := assert tensor.to_list(lt.batch_norm(tensor.from_l
 test_reshape := assert tensor.to_list(lt.reshape(t23, [3, 2])) = [[1, 2], [3, 4], [5, 6]]
 test_transpose := assert tensor.to_list(lt.transpose(t23, 0, 1)) = [[1, 4], [2, 5], [3, 6]]
 test_transpose_rank3 := assert tensor.to_list(lt.transpose(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), 1, 2)) = [[[1, 3], [2, 4]], [[5, 7], [6, 8]]]
+test_unsqueeze := assert tensor.to_list(lt.unsqueeze(t23, 1)) = [[[1, 2, 3]], [[4, 5, 6]]]
+test_unsqueeze_neg := assert tensor.to_list(lt.unsqueeze(t23, -1)) = [[[1], [2], [3]], [[4], [5], [6]]]
+test_select := assert tensor.to_list(lt.select(t23, 0, 1)) = [4, 5, 6]
+test_select_neg := assert tensor.to_list(lt.select(t23, 1, -1)) = [3, 6]
+test_select_scalar := assert tensor.to_list(lt.select(tensor.from_list([5, 6, 7]), 0, 1)) = 6
 test_concat_axis0 := assert tensor.to_list(lt.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6]])], 0)) = [[1, 2], [3, 4], [5, 6]]
 test_concat_axis1 := assert tensor.to_list(lt.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5], [6]])], 1)) = [[1, 2, 5], [3, 4, 6]]
 

@@ -5,7 +5,7 @@
 --- the interface contract; src/ops/ the reference impl — same file map:
 --- codec/elementwise/matmul/conv/norm/shape_ops on both sides, with
 --- derive split out of norm in Rust since DERIV_PAIRS spans domains).
---- All 24 host ops are mirrored. The two
+--- All 31 host ops are mirrored. The two
 --- packages are a design pair:
 ---
 ---   host-tensor — opaque atoms for fast eval: `tensor.*` calls are
@@ -58,8 +58,10 @@ export div := __div
 export div_backward := __div_backward
 from "./matmul.hnl" import matmul as __matmul
 from "./matmul.hnl" import matmul_backward as __matmul_backward
+from "./matmul.hnl" import linear as __linear
 export matmul := __matmul
 export matmul_backward := __matmul_backward
+export linear := __linear
 from "./conv.hnl" import conv2d as __conv2d
 from "./conv.hnl" import conv2d_backward as __conv2d_backward
 export conv2d := __conv2d
@@ -76,8 +78,12 @@ export reshape := __reshape
 export reshape_backward := __reshape_backward
 from "./shape_ops.hnl" import transpose as __transpose
 from "./shape_ops.hnl" import transpose_backward as __transpose_backward
+from "./shape_ops.hnl" import unsqueeze as __unsqueeze
+from "./shape_ops.hnl" import select as __select
 export transpose := __transpose
 export transpose_backward := __transpose_backward
+export unsqueeze := __unsqueeze
+export select := __select
 from "./shape_ops.hnl" import concat as __concat
 from "./shape_ops.hnl" import concat_backward as __concat_backward
 export concat := __concat
@@ -107,6 +113,7 @@ export ltensor := {
   div_backward: __div_backward,
   matmul: __matmul,
   matmul_backward: __matmul_backward,
+  linear: __linear,
   conv2d: __conv2d,
   conv2d_backward: __conv2d_backward,
   max_pool: __max_pool,
@@ -116,6 +123,8 @@ export ltensor := {
   reshape_backward: __reshape_backward,
   transpose: __transpose,
   transpose_backward: __transpose_backward,
+  unsqueeze: __unsqueeze,
+  select: __select,
   concat: __concat,
   concat_backward: __concat_backward,
   batch_norm_backward: __batch_norm_backward,
