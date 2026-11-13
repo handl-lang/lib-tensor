@@ -13,10 +13,12 @@ natively — the **transparent spec** to host-tensor's **opaque atoms**.
 | a rewrite sees | `tensor.conv2d(x, w, …)` as an atomic leaf | the broadcast odometer, the NCHW accumulation loops, the per-channel affine — structure it can look *inside* |
 | values | `TaggedValue::Tensor` kernel variant | the `{"__tensor__": …}` wire record |
 
-The two expose the same 24-op surface — the `*_backward` adjoints
-mirror host-tensor 1:1 (`elementwise.hnl`/`matmul.hnl`/`conv.hnl`), and
-`verify.hnl` checks all of them against the host under a composed
-runtime. (`host-tensor/src/index.hnl` is
+The two expose the same op surface — the `*_backward` adjoints
+mirror host-tensor 1:1 (`elementwise.hnl`/`matmul.hnl`/`conv.hnl`),
+and `verify.hnl` checks all of them against the host under a composed
+runtime. Three host ops are **pending port**: `tensor.linear`,
+`tensor.unsqueeze`, and `tensor.select` landed on host-tensor after
+this surface was written and have no `.hnl` counterpart yet. (`host-tensor/src/index.hnl` is
 the interface contract; `src/ops/` the reference impl this package
 mirrors line-for-line — same file map on both sides:
 `codec`/`elementwise`/`matmul`/`conv`/`norm`/`shape_ops`, with `derive`
@@ -51,7 +53,7 @@ read either form. The package makes **no host calls** — the old
 literal-string `"tensor.shape"`/`"tensor.to_list"` projection arms
 are gone.
 
-## The surface (24 ops, mirroring host-tensor 1:1)
+## The surface (28 ops — host-tensor's 31 minus the pending ports)
 
 `zeros`, `ones`, `from_list`, `to_list`, `shape` — codec/boundary ops
 (pure over wire records; the two projections delegate to the host on
@@ -88,7 +90,7 @@ answer to both.
    `Resource` project `{"__bytes__": …}`/`{"__sym__": …}`/
    `{"__resource__": …}` the same way; `Pair`/`Either`/`Arrow` keep
    their existing `.hnl` projections and do not present a record
-   view. With the seam, the whole spec — all 24 ops — is pure `.hnl`
+   view. With the seam, the whole spec — all 28 ops — is pure `.hnl`
    with zero host calls (construction stays in-language too: the wire
    record *is* the tensor's encoding).
 
