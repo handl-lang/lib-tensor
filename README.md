@@ -56,8 +56,8 @@ are gone.
 ## The surface (28 ops — host-tensor's 31 minus the pending ports)
 
 `zeros`, `ones`, `from_list`, `to_list`, `shape` — codec/boundary ops
-(pure over wire records; the two projections delegate to the host on
-opaque inputs, and `zeros`/`ones`/`from_list` construct the record
+(pure over wire records; `zeros`/`ones`/`from_list` construct the
+record
 directly — `data` may hold ints where the host emits `0.0`, an
 int/float-insensitive difference that never survives the wire).
 `add`, `mul`, `sub`, `div` — elementwise with numpy broadcasting.
@@ -167,7 +167,7 @@ arrow dialect), so the executable path is a host that does. catopt's
 
 ```bash
 <catopt>/target/debug/hnl-run --project . verify.hnl
-# → [{"name":"zeros","ok":true}, …] — 32 checks, all ok
+# → [{"name":"zeros","ok":true}, …] — 44 checks, all ok
 ```
 
 `ci.sh` runs `scripts/hnl-gate.sh` (the shared `hnl` typecheck/lint/
