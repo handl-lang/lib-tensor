@@ -38,6 +38,16 @@ do {
   ssq := tensor.from_list([2, 3])
   ss2 := tensor.from_list([[1, 2, 2, 4], [0, 0, 3, 5]])
 
+
+-- >>> verify-gen: helpers >>>
+  from "./src/internal/helpers.hnl" import { len }
+  vg_tl := (xs) ~> while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(xs) {
+      { state: { i: i + 1, acc: [...acc, tensor.to_list(xs[i])] } }
+    } else { { out: acc } }
+  }
+-- <<< verify-gen <<<
+
   [
     eq("zeros", lt.zeros([2, 2]), tensor.zeros([2, 2])),
     eq("ones", lt.ones([3]), tensor.ones([3])),
@@ -99,6 +109,272 @@ do {
     eq("searchsorted_side_right", lt.searchsorted(ss, ssq, null, false, "right"), tensor.searchsorted(ss, ssq, null, false, "right")),
     eq("searchsorted_side_left", lt.searchsorted(ss, ssq, null, true, "left"), tensor.searchsorted(ss, ssq, null, true, "left")),
     eq("searchsorted_batched", lt.searchsorted(ss2, ssq), tensor.searchsorted(ss2, ssq)),
-    eq("searchsorted_scalar", lt.searchsorted(ss, 2.5), tensor.searchsorted(ss, 2.5))
+    eq("searchsorted_scalar", lt.searchsorted(ss, 2.5), tensor.searchsorted(ss, 2.5)),
+-- >>> verify-gen: checks >>>
+    eq("abs", lt.abs(tensor.from_list([-2.5, -0.5, 0.5, 2.5])), tensor.abs(tensor.from_list([-2.5, -0.5, 0.5, 2.5]))),
+    eq("neg", lt.neg(tensor.from_list([-2.5, -0.5, 0.5, 2.5])), tensor.neg(tensor.from_list([-2.5, -0.5, 0.5, 2.5]))),
+    -- skip exp:exp:5211f3f6: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("exp", lt.exp(tensor.from_list([-1, 0, 0.5, 2])), tensor.exp(tensor.from_list([-1, 0, 0.5, 2]))),
+    -- skip log:log:757b6dae: needs `math.log` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("log", lt.log(tensor.from_list([0.25, 0.5, 1.0, 2.0])), tensor.log(tensor.from_list([0.25, 0.5, 1.0, 2.0]))),
+    -- skip log2:log2:757b6dae: needs `math.log2` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("log2", lt.log2(tensor.from_list([0.25, 0.5, 1.0, 2.0])), tensor.log2(tensor.from_list([0.25, 0.5, 1.0, 2.0]))),
+    -- skip log10:log10:757b6dae: needs `math.log10` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("log10", lt.log10(tensor.from_list([0.25, 0.5, 1.0, 2.0])), tensor.log10(tensor.from_list([0.25, 0.5, 1.0, 2.0]))),
+    -- skip sqrt:sqrt:757b6dae: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("sqrt", lt.sqrt(tensor.from_list([0.25, 0.5, 1.0, 2.0])), tensor.sqrt(tensor.from_list([0.25, 0.5, 1.0, 2.0]))),
+    -- skip rsqrt:rsqrt:757b6dae: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("rsqrt", lt.rsqrt(tensor.from_list([0.25, 0.5, 1.0, 2.0])), tensor.rsqrt(tensor.from_list([0.25, 0.5, 1.0, 2.0]))),
+    eq("reciprocal", lt.reciprocal(tensor.from_list([0.25, 0.5, 1.0, 2.0])), tensor.reciprocal(tensor.from_list([0.25, 0.5, 1.0, 2.0]))),
+    eq("square", lt.square(tensor.from_list([-2.5, -0.5, 0.5, 2.5])), tensor.square(tensor.from_list([-2.5, -0.5, 0.5, 2.5]))),
+    -- skip sin:sin:f63a462a: needs `math.sin` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("sin", lt.sin(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.sin(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip cos:cos:f63a462a: needs `math.cos` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("cos", lt.cos(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.cos(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip tan:tan:f63a462a: needs `math.tan` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("tan", lt.tan(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.tan(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip asin:asin:cdc7525e: needs `math.asin` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("asin", lt.asin(tensor.from_list([-0.9, -0.5, 0, 0.5, 0.9])), tensor.asin(tensor.from_list([-0.9, -0.5, 0, 0.5, 0.9]))),
+    -- skip acos:acos:cdc7525e: needs `math.acos` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("acos", lt.acos(tensor.from_list([-0.9, -0.5, 0, 0.5, 0.9])), tensor.acos(tensor.from_list([-0.9, -0.5, 0, 0.5, 0.9]))),
+    -- skip atan:atan:f63a462a: needs `math.atan` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("atan", lt.atan(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.atan(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip sinh:sinh:f63a462a: needs `math.sinh` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("sinh", lt.sinh(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.sinh(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip cosh:cosh:f63a462a: needs `math.cosh` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("cosh", lt.cosh(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.cosh(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip tanh:tanh:f63a462a: needs `math.tanh` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("tanh", lt.tanh(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.tanh(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip asinh:asinh:f63a462a: needs `math.asinh` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("asinh", lt.asinh(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.asinh(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip acosh:acosh:b565a9ee: needs `math.acosh` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("acosh", lt.acosh(tensor.from_list([1, 1.5, 2, 3])), tensor.acosh(tensor.from_list([1, 1.5, 2, 3]))),
+    -- skip atanh:atanh:cdc7525e: needs `math.atanh` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("atanh", lt.atanh(tensor.from_list([-0.9, -0.5, 0, 0.5, 0.9])), tensor.atanh(tensor.from_list([-0.9, -0.5, 0, 0.5, 0.9]))),
+    eq("floor", lt.floor(tensor.from_list([-2.3, -0.7, 0.2, 1.9])), tensor.floor(tensor.from_list([-2.3, -0.7, 0.2, 1.9]))),
+    eq("ceil", lt.ceil(tensor.from_list([-2.3, -0.7, 0.2, 1.9])), tensor.ceil(tensor.from_list([-2.3, -0.7, 0.2, 1.9]))),
+    eq("round", lt.round(tensor.from_list([-2.3, -0.7, 0.2, 1.9])), tensor.round(tensor.from_list([-2.3, -0.7, 0.2, 1.9]))),
+    eq("trunc", lt.trunc(tensor.from_list([-2.3, -0.7, 0.2, 1.9])), tensor.trunc(tensor.from_list([-2.3, -0.7, 0.2, 1.9]))),
+    eq("frac", lt.frac(tensor.from_list([-2.3, -0.7, 0.2, 1.9])), tensor.frac(tensor.from_list([-2.3, -0.7, 0.2, 1.9]))),
+    eq("sign", lt.sign(tensor.from_list([-2, 0, 3])), tensor.sign(tensor.from_list([-2, 0, 3]))),
+    -- skip sigmoid:sigmoid:f63a462a: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("sigmoid", lt.sigmoid(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.sigmoid(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip silu:silu:f63a462a: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("silu", lt.silu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.silu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip gelu:gelu:f63a462a: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("gelu", lt.gelu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.gelu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip gelu:gelu_tanh:955dd35f: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("gelu_tanh", lt.gelu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]), "tanh"), tensor.gelu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]), "tanh")),
+    eq("relu", lt.relu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.relu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip selu:selu:f63a462a: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("selu", lt.selu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.selu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip elu:elu:f63a462a: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("elu", lt.elu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.elu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip celu:celu:f63a462a: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("celu", lt.celu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.celu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("leaky_relu", lt.leaky_relu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.leaky_relu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("prelu", lt.prelu(tensor.from_list([-1, 2, -3, 4]), tensor.from_list([0.5, 1.5, 2.5, 3.5])), tensor.prelu(tensor.from_list([-1, 2, -3, 4]), tensor.from_list([0.5, 1.5, 2.5, 3.5]))),
+    eq("softshrink", lt.softshrink(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.softshrink(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("hardshrink", lt.hardshrink(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.hardshrink(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- ^^ MISMATCH hardshrink:hardshrink:f63a462a: [[-1.0, 0.0, 0.0, 1.0], [-1.5, 0.0, 0.0, 1.5]] — semantic drift
+    eq("hardtanh", lt.hardtanh(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.hardtanh(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("threshold", lt.threshold(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.threshold(tensor.from_list([-1.5, -0.5, 0.5, 1.5]), 0, 0)),
+    -- skip erf:erf:f63a462a: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("erf", lt.erf(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.erf(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip erfc:erfc:f63a462a: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("erfc", lt.erfc(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.erfc(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip sinc:sinc:da2e9b3e: needs `math.sin` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("sinc", lt.sinc(tensor.from_list([-2, -1, 0, 1, 2])), tensor.sinc(tensor.from_list([-2, -1, 0, 1, 2]))),
+    eq("deg2rad", lt.deg2rad(tensor.from_list([-90, -45, 0, 45, 90])), tensor.deg2rad(tensor.from_list([-90, -45, 0, 45, 90]))),
+    eq("rad2deg", lt.rad2deg(tensor.from_list([-1.5, 0, 0.5, 3.0])), tensor.rad2deg(tensor.from_list([-1.5, 0, 0.5, 3.0]))),
+    -- skip logit:logit:b001ea89: needs `math.log` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("logit", lt.logit(tensor.from_list([0.1, 0.3, 0.5, 0.9])), tensor.logit(tensor.from_list([0.1, 0.3, 0.5, 0.9]))),
+    eq("nan_to_num", lt.nan_to_num(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.nan_to_num(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("heaviside", lt.heaviside(tensor.from_list([-1, 0, 1, 2]), tensor.from_list([0.5, 1, 2, 3])), tensor.heaviside(tensor.from_list([-1, 0, 1, 2]), tensor.from_list([0.5, 1, 2, 3]))),
+    eq("isfinite", lt.isfinite(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.isfinite(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("isinf", lt.isinf(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.isinf(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("isnan", lt.isnan(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.isnan(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("isposinf", lt.isposinf(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.isposinf(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("isneginf", lt.isneginf(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.isneginf(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("signbit", lt.signbit(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.signbit(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    eq("logical_not", lt.logical_not(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.logical_not(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip atan2:atan2:79951664: needs `math.atan2` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("atan2", lt.atan2(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.atan2(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    -- skip hypot:hypot:79951664: needs `math.hypot` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("hypot", lt.hypot(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.hypot(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    -- skip logaddexp:logaddexp:79951664: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("logaddexp", lt.logaddexp(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.logaddexp(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("maximum", lt.maximum(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.maximum(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("minimum", lt.minimum(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.minimum(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("fmod", lt.fmod(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.fmod(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("floor_divide", lt.floor_divide(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.floor_divide(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("remainder", lt.remainder(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.remainder(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    -- skip pow:pow:ad3866ef: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("pow", lt.pow(tensor.from_list([1.5, 2.0, 3.0, 4.0]), tensor.from_list([0.5, 2.0, 1.0, 3.0])), tensor.pow(tensor.from_list([1.5, 2.0, 3.0, 4.0]), tensor.from_list([0.5, 2.0, 1.0, 3.0]))),
+    -- skip float_power:float_power:ad3866ef: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("float_power", lt.float_power(tensor.from_list([1.5, 2.0, 3.0, 4.0]), tensor.from_list([0.5, 2.0, 1.0, 3.0])), tensor.float_power(tensor.from_list([1.5, 2.0, 3.0, 4.0]), tensor.from_list([0.5, 2.0, 1.0, 3.0]))),
+    eq("eq", lt.eq(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.eq(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("ne", lt.ne(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.ne(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("lt", lt.lt(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.lt(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("le", lt.le(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.le(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("gt", lt.gt(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.gt(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("ge", lt.ge(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.ge(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("where", lt.where(tensor.from_list([1, 0, 1]), tensor.from_list([1, 2, 3]), tensor.from_list([9, 8, 7])), tensor.where(tensor.from_list([1, 0, 1]), tensor.from_list([1, 2, 3]), tensor.from_list([9, 8, 7]))),
+    eq("clamp", lt.clamp(tensor.from_list([1, 2, 3, 4]), 0, 3), tensor.clamp(tensor.from_list([1, 2, 3, 4]), 0, 3)),
+    eq("clamp_min", lt.clamp_min(tensor.from_list([1, 2, 3, 4]), 1), tensor.clamp_min(tensor.from_list([1, 2, 3, 4]), 1)),
+    eq("clamp_max", lt.clamp_max(tensor.from_list([1, 2, 3, 4]), 3), tensor.clamp_max(tensor.from_list([1, 2, 3, 4]), 3)),
+    eq("lerp", lt.lerp(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6]), 0.5), tensor.lerp(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6]), 0.5)),
+    -- skip xlogy:xlogy:061c5a8a: needs `math.log` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("xlogy", lt.xlogy(tensor.from_list([0, 1, 2, 3]), tensor.from_list([1, 2, 3, 4])), tensor.xlogy(tensor.from_list([0, 1, 2, 3]), tensor.from_list([1, 2, 3, 4]))),
+    eq("logical_and", lt.logical_and(tensor.from_list([0, 1, 2, 0]), tensor.from_list([1, 0, 3, 0])), tensor.logical_and(tensor.from_list([0, 1, 2, 0]), tensor.from_list([1, 0, 3, 0]))),
+    eq("logical_or", lt.logical_or(tensor.from_list([0, 1, 2, 0]), tensor.from_list([1, 0, 3, 0])), tensor.logical_or(tensor.from_list([0, 1, 2, 0]), tensor.from_list([1, 0, 3, 0]))),
+    eq("logical_xor", lt.logical_xor(tensor.from_list([0, 1, 2, 0]), tensor.from_list([1, 0, 3, 0])), tensor.logical_xor(tensor.from_list([0, 1, 2, 0]), tensor.from_list([1, 0, 3, 0]))),
+    eq("sum", lt.sum(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.sum(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("prod", lt.prod(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.prod(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("mean", lt.mean(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.mean(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("var", lt.var(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.var(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    -- skip std:std:c8a97d9d: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("std", lt.std(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.std(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("amax", lt.amax(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.amax(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("amin", lt.amin(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.amin(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("argmax", lt.argmax(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0), tensor.argmax(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)),
+    eq("argmin", lt.argmin(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0), tensor.argmin(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)),
+    -- skip logsumexp:logsumexp:d964adc0: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("logsumexp", lt.logsumexp(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [0, 1]), tensor.logsumexp(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [0, 1])),
+    eq("all", lt.all(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.all(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("any", lt.any(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.any(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("cumsum", lt.cumsum(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1), tensor.cumsum(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)),
+    eq("cumprod", lt.cumprod(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1), tensor.cumprod(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)),
+    -- skip softmax:softmax:1b6306de: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("softmax", lt.softmax(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1), tensor.softmax(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)),
+    -- skip log_softmax:log_softmax:1b6306de: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("log_softmax", lt.log_softmax(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1), tensor.log_softmax(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)),
+    -- skip layer_norm:layer_norm:bf562747: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("layer_norm", lt.layer_norm(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [3]), tensor.layer_norm(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [3])),
+    -- skip rms_norm:rms_norm:bf562747: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("rms_norm", lt.rms_norm(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [3]), tensor.rms_norm(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [3])),
+    -- skip glu:glu:9403267f: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("glu", lt.glu(tensor.from_list([[1, 2, 3, 4], [5, 6, 7, 8]])), tensor.glu(tensor.from_list([[1, 2, 3, 4], [5, 6, 7, 8]]))),
+    check("sort", {values: tensor.to_list((lt.sort(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)).values), indices: tensor.to_list((lt.sort(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)).indices)}, {values: tensor.to_list((tensor.sort(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)).values), indices: tensor.to_list((tensor.sort(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)).indices)}),
+    eq("argsort", lt.argsort(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1), tensor.argsort(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)),
+    check("topk", {values: tensor.to_list((lt.topk(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 0)).values), indices: tensor.to_list((lt.topk(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 0)).indices)}, {values: tensor.to_list((tensor.topk(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 0)).values), indices: tensor.to_list((tensor.topk(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 0)).indices)}),
+    eq("nonzero", lt.nonzero(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.nonzero(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("argwhere", lt.argwhere(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.argwhere(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("squeeze", lt.squeeze(tensor.from_list([[[1, 2], [3, 4]]])), tensor.squeeze(tensor.from_list([[[1, 2], [3, 4]]]))),
+    eq("index_select", lt.index_select(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0, tensor.from_list([1, 0])), tensor.index_select(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0, tensor.from_list([1, 0]))),
+    eq("gather", lt.gather(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0, tensor.from_list([[0, 1, 0], [1, 0, 1]])), tensor.gather(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0, tensor.from_list([[0, 1, 0], [1, 0, 1]]))),
+    eq("index_add", lt.index_add(tensor.from_list([1, 2, 3]), 0, [0, 2], tensor.from_list([10, 30])), tensor.index_add(tensor.from_list([1, 2, 3]), 0, tensor.from_list([0, 2]), tensor.from_list([10, 30]))),
+    eq("index_fill", lt.index_fill(tensor.from_list([1, 2, 3]), 0, [0, 2], 9), tensor.index_fill(tensor.from_list([1, 2, 3]), 0, tensor.from_list([0, 2]), 9)),
+    eq("take", lt.take(tensor.from_list([[3, 1, 2], [6, 5, 4]]), tensor.from_list([0, 5, 2])), tensor.take(tensor.from_list([[3, 1, 2], [6, 5, 4]]), tensor.from_list([0, 5, 2]))),
+    eq("flatten", lt.flatten(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.flatten(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("expand", lt.expand(tensor.from_list([1, 2, 3]), [2, 3]), tensor.expand(tensor.from_list([1, 2, 3]), [2, 3])),
+    eq("expand_as", lt.expand_as(tensor.from_list([1, 2, 3]), tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.expand_as(tensor.from_list([1, 2, 3]), tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("narrow", lt.narrow(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0, 1, 1), tensor.narrow(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0, 1, 1)),
+    eq("slice", lt.slice(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1, 0, 2), tensor.slice(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1, 0, 2)),
+    check("chunk", vg_tl(lt.chunk(tensor.from_list([1, 2, 3, 4]), 2)), vg_tl(tensor.chunk(tensor.from_list([1, 2, 3, 4]), 2))),
+    check("split", vg_tl(lt.split(tensor.from_list([1, 2, 3, 4]), [1, 3])), vg_tl(tensor.split(tensor.from_list([1, 2, 3, 4]), [1, 3]))),
+    eq("stack", lt.stack([tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6])], 0), tensor.stack([tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6])], 0)),
+    check("unbind", vg_tl(lt.unbind(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)), vg_tl(tensor.unbind(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0))),
+    eq("repeat", lt.repeat(tensor.from_list([1, 2, 3]), [2]), tensor.repeat(tensor.from_list([1, 2, 3]), [2])),
+    eq("flip", lt.flip(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [0, 1]), tensor.flip(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [0, 1])),
+    eq("triu", lt.triu(tensor.from_list([[1, 2], [3, 4]])), tensor.triu(tensor.from_list([[1, 2], [3, 4]]))),
+    eq("tril", lt.tril(tensor.from_list([[1, 2], [3, 4]])), tensor.tril(tensor.from_list([[1, 2], [3, 4]]))),
+    eq("diag", lt.diag(tensor.from_list([[1, 2], [3, 4]])), tensor.diag(tensor.from_list([[1, 2], [3, 4]]))),
+    eq("diagonal", lt.diagonal(tensor.from_list([[1, 2], [3, 4]])), tensor.diagonal(tensor.from_list([[1, 2], [3, 4]]))),
+    eq("trace", lt.trace(tensor.from_list([[1, 2], [3, 4]])), tensor.trace(tensor.from_list([[1, 2], [3, 4]]))),
+    eq("t", lt.t(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.t(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("mT", lt.mT(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])), tensor.mT(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]))),
+    eq("swapaxes", lt.swapaxes(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), 0, 2), tensor.swapaxes(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), 0, 2)),
+    eq("moveaxis", lt.moveaxis(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), 0, 1), tensor.moveaxis(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), 0, 1)),
+    eq("rot90", lt.rot90(tensor.from_list([[1, 2], [3, 4]])), tensor.rot90(tensor.from_list([[1, 2], [3, 4]]))),
+    eq("contiguous", lt.contiguous(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.contiguous(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("clone", lt.clone(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.clone(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("detach", lt.detach(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.detach(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("view", lt.view(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [3, 2]), tensor.view(tensor.from_list([[3, 1, 2], [6, 5, 4]]), [3, 2])),
+    eq("pixel_shuffle", lt.pixel_shuffle(tensor.from_list([[[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]], [[13, 14], [15, 16]]]]), 2), tensor.pixel_shuffle(tensor.from_list([[[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]], [[13, 14], [15, 16]]]]), 2)),
+    eq("pixel_unshuffle", lt.pixel_unshuffle(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), 2), tensor.pixel_unshuffle(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), 2)),
+    eq("constant_pad_nd", lt.constant_pad_nd(tensor.from_list([[1, 2], [3, 4]]), [1, 1, 1, 1]), tensor.constant_pad_nd(tensor.from_list([[1, 2], [3, 4]]), [1, 1, 1, 1])),
+    eq("mm", lt.mm(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]])), tensor.mm(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]))),
+    eq("bmm", lt.bmm(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 1], [1, 2]]])), tensor.bmm(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 1], [1, 2]]]))),
+    eq("addmm", lt.addmm(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]])), tensor.addmm(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]))),
+    eq("addbmm", lt.addbmm(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 1], [1, 2]]])), tensor.addbmm(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 1], [1, 2]]]))),
+    eq("baddbmm", lt.baddbmm(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 1], [1, 2]]])), tensor.baddbmm(tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 1], [1, 2]]]))),
+    eq("mv", lt.mv(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([3, 4])), tensor.mv(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([3, 4]))),
+    eq("dot", lt.dot(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6])), tensor.dot(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6]))),
+    eq("vdot", lt.vdot(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6])), tensor.vdot(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6]))),
+    eq("ger", lt.ger(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6])), tensor.ger(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6]))),
+    eq("outer", lt.outer(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6])), tensor.outer(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6]))),
+    eq("addr", lt.addr(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([1, 2]), tensor.from_list([3, 4])), tensor.addr(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([1, 2]), tensor.from_list([3, 4]))),
+    eq("addmv", lt.addmv(tensor.from_list([1, 2]), tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([3, 4])), tensor.addmv(tensor.from_list([1, 2]), tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([3, 4]))),
+    eq("full", lt.full([2, 2], 5), tensor.full([2, 2], 5)),
+    eq("full_like", lt.full_like(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 3), tensor.full_like(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 3)),
+    eq("zeros_like", lt.zeros_like(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.zeros_like(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("ones_like", lt.ones_like(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.ones_like(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("arange", lt.arange(5), tensor.arange(5)),
+    eq("arange_step", lt.arange(1, 6, 2), tensor.arange(1, 6, 2)),
+    eq("linspace", lt.linspace(0, 1, 5), tensor.linspace(0, 1, 5)),
+    -- skip logspace:logspace:a465ce6b: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("logspace", lt.logspace(0, 2, 5), tensor.logspace(0, 2, 5)),
+    eq("eye", lt.eye(3), tensor.eye(3)),
+    check("size", lt.size(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.size(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    check("size_i", lt.size(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1), tensor.size(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 1)),
+    check("stride", lt.stride(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.stride(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    check("numel", lt.numel(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.numel(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    check("dim", lt.dim(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.dim(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    check("item", lt.item(tensor.from_list([42])), tensor.item(tensor.from_list([42]))),
+    check("is_contiguous", lt.is_contiguous(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.is_contiguous(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    check("is_contiguous_expand", lt.is_contiguous(lt.expand(tensor.from_list([1, 2, 3]), [2, 3])), tensor.is_contiguous(tensor.expand(tensor.from_list([1, 2, 3]), [2, 3]))),
+    check("avg_pool2d", lt.to_list(lt.avg_pool2d(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), [2, 2])), tensor.to_list(tensor.avg_pool2d(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), [2, 2]))),
+    -- skip unique:unique:4ab7cd12: host `tensor.unique` is a declared port seam under hnl-run — nothing to compare against
+    -- skip nonzero_dim:nonzero_dim:3a879423: host `tensor.nonzero_dim` is a declared port seam under hnl-run — nothing to compare against
+    eq("kron", lt.kron(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]])), tensor.kron(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]))),
+    eq("cross", lt.cross(tensor.from_list([1, 0, 0]), tensor.from_list([0, 1, 0])), tensor.cross(tensor.from_list([1, 0, 0]), tensor.from_list([0, 1, 0]))),
+    -- skip norm:norm:6b4c0c4b: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("norm", lt.norm(tensor.from_list([1, 2, 3, 4]), 2), tensor.norm(tensor.from_list([1, 2, 3, 4]), 2)),
+    -- skip renorm:renorm:bd866451: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("renorm", lt.renorm(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 0, 1.0), tensor.renorm(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 0, 1.0)),
+    -- skip normalize:normalize:3b89937f: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("normalize", lt.normalize(tensor.from_list([1, 2, 3, 4]), 2, 0), tensor.normalize(tensor.from_list([1, 2, 3, 4]), 2, 0)),
+    check("median", {values: tensor.to_list((lt.median(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)).values), indices: tensor.to_list((lt.median(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)).indices)}, {values: tensor.to_list((tensor.median(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)).values), indices: tensor.to_list((tensor.median(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)).indices)}),
+    check("mode", {values: tensor.to_list((lt.mode(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)).values), indices: tensor.to_list((lt.mode(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)).indices)}, {values: tensor.to_list((tensor.mode(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)).values), indices: tensor.to_list((tensor.mode(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 0)).indices)}),
+    check("kthvalue", {values: tensor.to_list((lt.kthvalue(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 1)).values), indices: tensor.to_list((lt.kthvalue(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 1)).indices)}, {values: tensor.to_list((tensor.kthvalue(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 1)).values), indices: tensor.to_list((tensor.kthvalue(tensor.from_list([[3, 1, 2], [6, 5, 4]]), 2, 1)).indices)}),
+    eq("quantile", lt.quantile(tensor.from_list([1, 2, 3, 4]), 0.5), tensor.quantile(tensor.from_list([1, 2, 3, 4]), 0.5)),
+    check("bincount", lt.to_list(lt.bincount(tensor.from_list([0, 1, 1, 2, 2, 2]))), tensor.to_list(tensor.bincount(tensor.from_list([0, 1, 1, 2, 2, 2])))),
+    check("meshgrid", vg_tl(lt.meshgrid(tensor.from_list([1, 2]), tensor.from_list([3, 4]))), vg_tl(tensor.meshgrid([tensor.from_list([1, 2]), tensor.from_list([3, 4])]))),
+    -- skip corrcoef:corrcoef:c8a97d9d: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("corrcoef", lt.corrcoef(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.corrcoef(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("max", lt.max(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.max(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("max_elem", lt.max(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.max(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("min", lt.min(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.min(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("min_elem", lt.min(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.min(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    eq("count_nonzero", lt.count_nonzero(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.count_nonzero(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("inner", lt.inner(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6])), tensor.inner(tensor.from_list([1, 2, 3]), tensor.from_list([4, 5, 6]))),
+    -- skip dist:dist:b49057b3: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("dist", lt.dist(tensor.from_list([1, 2, 3]), tensor.from_list([4, 6, 3])), tensor.dist(tensor.from_list([1, 2, 3]), tensor.from_list([4, 6, 3]))),
+    check("allclose", lt.item(lt.allclose(tensor.from_list([[3, 1, 2], [6, 5, 4]]), tensor.from_list([[3, 1, 2], [6, 5, 4]]))) != 0, tensor.allclose(tensor.from_list([[3, 1, 2], [6, 5, 4]]), tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    check("is_nonzero", lt.item(lt.is_nonzero(tensor.from_list([[3, 1, 2], [6, 5, 4]]))) != 0, tensor.is_nonzero(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("msort", lt.msort(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.msort(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("nansum", lt.nansum(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.nansum(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    eq("nanmean", lt.nanmean(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.nanmean(tensor.from_list([[3, 1, 2], [6, 5, 4]])))
+    -- skip cdist:cdist:88a368fa: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("cdist", lt.cdist(tensor.from_list([[3, 1, 2], [6, 5, 4]]), tensor.from_list([[1, 1, 1], [2, 2, 2]])), tensor.cdist(tensor.from_list([[3, 1, 2], [6, 5, 4]]), tensor.from_list([[1, 1, 1], [2, 2, 2]]))),
+    -- skip pdist:pdist:c8a97d9d: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("pdist", lt.pdist(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.pdist(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
+    -- skip exp2: lib stub (math.* has no exp2; math.pow(2,x) is not bit-identical)
+    -- skip expm1: lib stub (math.* has no expm1)
+    -- skip log1p: lib stub (math.* has no log1p)
+    -- skip mish: lib stub (needs ln_1p — same gap as aten::log1p)
+    -- skip softplus: lib stub (needs ln_1p — same gap as aten::log1p)
+    -- skip logaddexp2: lib stub (needs exp2 — same gap as aten::exp2)
+    -- skip nextafter: lib stub (one-ULP step needs f64 bit patterns the wire lacks)
+    -- skip copysign: lib stub (sign-of-zero semantics need bit-level access the wire lacks)
+    -- skip empty: lib stub (uninitialized fill cannot be represented on the wire)
+    -- skip rand: lib stub (RNG state is not part of the wire contract; nondeterminism breaks verification)
+    -- skip normal: lib stub (RNG state is not part of the wire contract)
+    -- skip einsum: lib stub (equation-string arg + general contraction engine — handwritten seam (host has a dedicated parser))
+    -- skip tensordot: lib `lt.tensordot` crashes `index: index 1 out of bounds` on every probed dims spec ([1],[0] and [0],[1], 2-D and 3-D operands) while host k_tensordot returns correct values — candidate lib defect, not a fixture problem
+    -- skip searchsorted: handwritten checks already in verify.hnl
+    -- skip to: no common spec form: host `tensor.to` accepts the "f64" dtype string (or a tensor rhs); lib `aten_to` accepts only a non-empty list or {f: _} record and dies on the string — interface drift, nothing comparable to emit
+  -- <<< verify-gen <<<
   ]
 }
