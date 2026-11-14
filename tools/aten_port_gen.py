@@ -102,6 +102,8 @@ MATH_UNARY = {
     "erf": "aten_erf(x)", "erfc": "1 - aten_erf(x)",
     "silu": "x / (1 + math.exp(0 - x))",
     "sigmoid": "1 / (1 + math.exp(0 - x))",
+    "exp2": "math.exp2(x)", "expm1": "math.expm1(x)", "log1p": "math.log1p(x)",
+    "mish": "x * math.tanh(math.log1p(math.exp(x)))",
     "sinc": "if x == 0 { 1 } else { math.sin(3.141592653589793 * x) / (3.141592653589793 * x) }",
     "relu": "aten_fmax(x, 0)",
     "selu": "if x > 0 { 1.0507009873554805 * x } else { 1.0507009873554805 * 1.6732632423543772 * (math.exp(x) - 1) }",
@@ -133,6 +135,9 @@ BIN = {
     "logical_or": "if (x != 0) || (y != 0) { 1 } else { 0 }",
     "logical_xor": "if (x != 0) != (y != 0) { 1 } else { 0 }",
     "logaddexp": "do {\n  m :: aten_fmax(x, y)\n  m + math.log(math.exp(x - m) + math.exp(y - m))\n}",
+    "logaddexp2": "do {\n  m :: aten_fmax(x, y)\n  m + math.log2(math.exp2(x - m) + math.exp2(y - m))\n}",
+    "copysign": "math.copysign(x, y)",
+    "nextafter": "math.nextafter(x, y)",
     "remainder": "do {\n  rr :: x % y\n  if rr != 0 && (rr < 0) != (y < 0) { rr + y } else { rr }\n}",
     "heaviside": "if x > 0 { 1 } else { if x < 0 { 0 } else { 0.5 * y } }",
     "xlogy": "if x == 0 { 0 } else { x * math.log(y) }",
@@ -143,14 +148,6 @@ STUBS = {
     "rand": "RNG state is not part of the wire contract; nondeterminism breaks verification",
     "normal": "RNG state is not part of the wire contract",
     "einsum": "equation-string arg + general contraction engine — handwritten seam (host has a dedicated parser)",
-    "exp2": "math.* has no exp2; math.pow(2,x) is not bit-identical",
-    "expm1": "math.* has no expm1",
-    "log1p": "math.* has no log1p",
-    "logaddexp2": "needs exp2 — same gap as aten::exp2",
-    "mish": "needs ln_1p — same gap as aten::log1p",
-    "softplus": "needs ln_1p — same gap as aten::log1p",
-    "copysign": "sign-of-zero semantics need bit-level access the wire lacks",
-    "nextafter": "one-ULP step needs f64 bit patterns the wire lacks",
 }
 
 # ---------------------------------------------------------------------------
@@ -318,6 +315,8 @@ COMPOSE = {
                    "do {\n  xv :: if aten_is_nan(x) { nanv } else { if aten_is_infinite(x) { if x > 0 { if posv == null { x } else { posv } } else { if negv == null { x } else { negv } } } else { x } }\n  xv\n}"),
     "gelu": ("unary_p", "approx :: aten_opt(rest, 0, null)",
              "do {\n  is_tanh :: approx == \"tanh\"\n  x3 :: x * x * x\n  v :: if is_tanh {\n    0.5 * x * (1 + math.tanh(math.sqrt(1.5707963267948966 / 3.141592653589793) * (x + 0.044715 * x3)))\n  } else {\n    0.5 * x * (1 + aten_erf(x / math.sqrt(2)))\n  }\n  v\n}"),
+    "softplus": ("unary_p2", "beta :: aten_opt_num(rest, 0, 1)\nthr :: aten_opt_num(rest, 1, 20)",
+                 "if beta * x > thr { x } else { math.log1p(math.exp(beta * x)) / beta }"),
     "is_contiguous": (None, None, None),  # handled as meta driver
 }
 
@@ -329,13 +328,15 @@ FAMILIES = {
               "tanh","asinh","acosh","atanh","floor","ceil","round","trunc",
               "frac","deg2rad","rad2deg","erf","erfc","silu","sigmoid","sinc",
               "relu","selu","sign","elu","celu","leaky_relu","softshrink",
-              "hardshrink","hardtanh","threshold","logit","nan_to_num","gelu"],
+              "hardshrink","hardtanh","threshold","logit","nan_to_num","gelu",
+              "exp2","expm1","log1p","mish","softplus"],
     "pred": ["isfinite","isinf","isnan","isposinf","isneginf","signbit",
              "logical_not"],
     "binary": ["atan2","hypot","fmod","floor_divide","maximum","minimum",
                "pow","float_power","eq","ne","lt","le","gt","ge",
                "logical_and","logical_or","logical_xor","logaddexp",
-               "remainder","heaviside","xlogy"],
+               "logaddexp2","copysign","nextafter","remainder","heaviside",
+               "xlogy"],
     "reduce": ["sum","prod","amax","amin","argmax","argmin","mean","var",
                "std","logsumexp","cumsum","cumprod","softmax",
                "log_softmax","count_nonzero","nansum","nanmean","all","any",
@@ -357,9 +358,7 @@ FAMILIES = {
                    "linspace","logspace","eye","numel","dim","size",
                    "stride","item","is_contiguous","bincount","corrcoef",
                    "to","meshgrid"],
-    "stub": ["empty","rand","normal","einsum",
-             "exp2","expm1","log1p","logaddexp2","mish","softplus",
-             "copysign","nextafter"],
+    "stub": ["empty","rand","normal","einsum"],
 }
 
 # ---------------------------------------------------------------------------

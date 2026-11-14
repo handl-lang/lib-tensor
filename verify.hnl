@@ -115,8 +115,14 @@ do {
     eq("neg", lt.neg(tensor.from_list([-2.5, -0.5, 0.5, 2.5])), tensor.neg(tensor.from_list([-2.5, -0.5, 0.5, 2.5]))),
     -- skip exp:exp:5211f3f6: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
     --   eq("exp", lt.exp(tensor.from_list([-1, 0, 0.5, 2])), tensor.exp(tensor.from_list([-1, 0, 0.5, 2]))),
+    -- skip exp2:exp2:5211f3f6: needs `math.exp2` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("exp2", lt.exp2(tensor.from_list([-1, 0, 0.5, 2])), tensor.exp2(tensor.from_list([-1, 0, 0.5, 2]))),
+    -- skip expm1:expm1:5211f3f6: needs `math.expm1` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("expm1", lt.expm1(tensor.from_list([-1, 0, 0.5, 2])), tensor.expm1(tensor.from_list([-1, 0, 0.5, 2]))),
     -- skip log:log:757b6dae: needs `math.log` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
     --   eq("log", lt.log(tensor.from_list([0.25, 0.5, 1.0, 2.0])), tensor.log(tensor.from_list([0.25, 0.5, 1.0, 2.0]))),
+    -- skip log1p:log1p:757b6dae: needs `math.log1p` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("log1p", lt.log1p(tensor.from_list([0.25, 0.5, 1.0, 2.0])), tensor.log1p(tensor.from_list([0.25, 0.5, 1.0, 2.0]))),
     -- skip log2:log2:757b6dae: needs `math.log2` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
     --   eq("log2", lt.log2(tensor.from_list([0.25, 0.5, 1.0, 2.0])), tensor.log2(tensor.from_list([0.25, 0.5, 1.0, 2.0]))),
     -- skip log10:log10:757b6dae: needs `math.log10` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
@@ -161,6 +167,8 @@ do {
     --   eq("sigmoid", lt.sigmoid(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.sigmoid(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
     -- skip silu:silu:f63a462a: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
     --   eq("silu", lt.silu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.silu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
+    -- skip mish:mish:5211f3f6: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("mish", lt.mish(tensor.from_list([-1, 0, 0.5, 2])), tensor.mish(tensor.from_list([-1, 0, 0.5, 2]))),
     -- skip gelu:gelu:f63a462a: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
     --   eq("gelu", lt.gelu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.gelu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
     -- skip gelu:gelu_tanh:955dd35f: needs `math.sqrt` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
@@ -174,6 +182,10 @@ do {
     --   eq("celu", lt.celu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.celu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
     eq("leaky_relu", lt.leaky_relu(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.leaky_relu(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
     eq("prelu", lt.prelu(tensor.from_list([-1, 2, -3, 4]), tensor.from_list([0.5, 1.5, 2.5, 3.5])), tensor.prelu(tensor.from_list([-1, 2, -3, 4]), tensor.from_list([0.5, 1.5, 2.5, 3.5]))),
+    -- skip softplus:softplus:e52c5931: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("softplus", lt.softplus(tensor.from_list([-1, 0, 0.5, 25])), tensor.softplus(tensor.from_list([-1, 0, 0.5, 25]))),
+    -- skip softplus:softplus_params:77968da7: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("softplus_params", lt.softplus(tensor.from_list([-1, 0, 0.5, 25]), 2, 10), tensor.softplus(tensor.from_list([-1, 0, 0.5, 25]), 2, 10)),
     eq("softshrink", lt.softshrink(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.softshrink(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
     eq("hardshrink", lt.hardshrink(tensor.from_list([-1.5, -0.5, 0.5, 1.5])), tensor.hardshrink(tensor.from_list([-1.5, -0.5, 0.5, 1.5]))),
     -- ^^ MISMATCH hardshrink:hardshrink:f63a462a: [[-1.0, 0.0, 0.0, 1.0], [-1.5, 0.0, 0.0, 1.5]] — semantic drift
@@ -204,10 +216,16 @@ do {
     --   eq("hypot", lt.hypot(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.hypot(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
     -- skip logaddexp:logaddexp:79951664: needs `math.exp` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
     --   eq("logaddexp", lt.logaddexp(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.logaddexp(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    -- skip logaddexp2:logaddexp2:79951664: needs `math.exp2` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("logaddexp2", lt.logaddexp2(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.logaddexp2(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
     eq("maximum", lt.maximum(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.maximum(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
     eq("minimum", lt.minimum(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.minimum(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    -- skip nextafter:nextafter:7e113753: needs `math.nextafter` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("nextafter", lt.nextafter(tensor.from_list([1.0, 2.0, -1.0, 0.5]), tensor.from_list([2.0, 1.0, -2.0, -0.5])), tensor.nextafter(tensor.from_list([1.0, 2.0, -1.0, 0.5]), tensor.from_list([2.0, 1.0, -2.0, -0.5]))),
     eq("fmod", lt.fmod(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.fmod(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
     eq("floor_divide", lt.floor_divide(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.floor_divide(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
+    -- skip copysign:copysign:79951664: needs `math.copysign` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
+    --   eq("copysign", lt.copysign(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.copysign(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
     eq("remainder", lt.remainder(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0])), tensor.remainder(tensor.from_list([1.5, -2.0, 3.0, -4.0]), tensor.from_list([2.0, 0.5, -1.0, 4.0]))),
     -- skip pow:pow:ad3866ef: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
     --   eq("pow", lt.pow(tensor.from_list([1.5, 2.0, 3.0, 4.0]), tensor.from_list([0.5, 2.0, 1.0, 3.0])), tensor.pow(tensor.from_list([1.5, 2.0, 3.0, 4.0]), tensor.from_list([0.5, 2.0, 1.0, 3.0]))),
@@ -360,14 +378,6 @@ do {
     --   eq("cdist", lt.cdist(tensor.from_list([[3, 1, 2], [6, 5, 4]]), tensor.from_list([[1, 1, 1], [2, 2, 2]])), tensor.cdist(tensor.from_list([[3, 1, 2], [6, 5, 4]]), tensor.from_list([[1, 1, 1], [2, 2, 2]]))),
     -- skip pdist:pdist:c8a97d9d: needs `math.pow` host native — hnl-run's CatoptKit does not register plugin-lib-stdlib math.* leaves (environment gap, not a semantic verdict)
     --   eq("pdist", lt.pdist(tensor.from_list([[3, 1, 2], [6, 5, 4]])), tensor.pdist(tensor.from_list([[3, 1, 2], [6, 5, 4]]))),
-    -- skip exp2: lib stub (math.* has no exp2; math.pow(2,x) is not bit-identical)
-    -- skip expm1: lib stub (math.* has no expm1)
-    -- skip log1p: lib stub (math.* has no log1p)
-    -- skip mish: lib stub (needs ln_1p — same gap as aten::log1p)
-    -- skip softplus: lib stub (needs ln_1p — same gap as aten::log1p)
-    -- skip logaddexp2: lib stub (needs exp2 — same gap as aten::exp2)
-    -- skip nextafter: lib stub (one-ULP step needs f64 bit patterns the wire lacks)
-    -- skip copysign: lib stub (sign-of-zero semantics need bit-level access the wire lacks)
     -- skip empty: lib stub (uninitialized fill cannot be represented on the wire)
     -- skip rand: lib stub (RNG state is not part of the wire contract; nondeterminism breaks verification)
     -- skip normal: lib stub (RNG state is not part of the wire contract)

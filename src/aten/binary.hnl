@@ -60,6 +60,14 @@ export logaddexp := (a, b, ...rest) ~> do {
 }))
 }
 
+-- aten: aten::logaddexp2(Tensor self, Tensor other) -> Tensor
+export logaddexp2 := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> do {
+  m :: aten_fmax(x, y)
+  m + math.log2(math.exp2(x - m) + math.exp2(y - m))
+}))
+}
+
 -- aten: aten::maximum(Tensor self, Tensor other) -> Tensor
 export maximum := (a, b, ...rest) ~> do {
   aten_ow(aten_bin_ss(a, b, (x, y) ~> aten_fmax(x, y)))
@@ -70,6 +78,11 @@ export minimum := (a, b, ...rest) ~> do {
   aten_ow(aten_bin_ss(a, b, (x, y) ~> aten_fmin(x, y)))
 }
 
+-- aten: aten::nextafter(Tensor self, Tensor other) -> Tensor
+export nextafter := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> math.nextafter(x, y)))
+}
+
 -- aten: aten::fmod.Tensor(Tensor self, Tensor other) -> Tensor
 export fmod := (a, b, ...rest) ~> do {
   aten_ow(aten_bin_ss(a, b, (x, y) ~> x % y))
@@ -78,6 +91,11 @@ export fmod := (a, b, ...rest) ~> do {
 -- aten: aten::floor_divide(Tensor self, Tensor other) -> Tensor
 export floor_divide := (a, b, ...rest) ~> do {
   aten_ow(aten_bin_ss(a, b, (x, y) ~> aten_floor(x / y)))
+}
+
+-- aten: aten::copysign.Tensor(Tensor self, Tensor other) -> Tensor
+export copysign := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> math.copysign(x, y)))
 }
 
 -- aten: aten::remainder.Tensor(Tensor self, Tensor other) -> Tensor

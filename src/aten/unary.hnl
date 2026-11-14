@@ -55,10 +55,28 @@ export exp := (t, ...rest) ~> do {
   aten_ow(aten_map1(w, (x) ~> math.exp(x)))
 }
 
+-- aten: aten::exp2(Tensor self) -> Tensor
+export exp2 := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> math.exp2(x)))
+}
+
+-- aten: aten::expm1(Tensor self) -> Tensor
+export expm1 := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> math.expm1(x)))
+}
+
 -- aten: aten::log(Tensor self) -> Tensor
 export log := (t, ...rest) ~> do {
   w :: as_wire(t)
   aten_ow(aten_map1(w, (x) ~> math.log(x)))
+}
+
+-- aten: aten::log1p(Tensor self) -> Tensor
+export log1p := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> math.log1p(x)))
 }
 
 -- aten: aten::log2(Tensor self) -> Tensor
@@ -217,6 +235,12 @@ export silu := (t, ...rest) ~> do {
   aten_ow(aten_map1(w, (x) ~> x / (1 + math.exp(0 - x))))
 }
 
+-- aten: aten::mish(Tensor self) -> Tensor
+export mish := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> x * math.tanh(math.log1p(math.exp(x)))))
+}
+
 -- aten: aten::gelu(Tensor self, *, str approximate="none") -> Tensor
 export gelu := (t, ...rest) ~> do {
   approx :: aten_opt(rest, 0, null)
@@ -264,6 +288,14 @@ export leaky_relu := (t, ...rest) ~> do {
   ns :: aten_opt_num(rest, 0, 0.01)
   w :: as_wire(t)
   aten_ow(aten_map1(w, (x) ~> if x >= 0 { x } else { ns * x }))
+}
+
+-- aten: aten::softplus(Tensor self, Scalar beta=1, Scalar threshold=20) -> Tensor
+export softplus := (t, ...rest) ~> do {
+  beta :: aten_opt_num(rest, 0, 1)
+thr :: aten_opt_num(rest, 1, 20)
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> if beta * x > thr { x } else { math.log1p(math.exp(beta * x)) / beta }))
 }
 
 -- aten: aten::softshrink(Tensor self, Scalar lambd=0.5) -> Tensor

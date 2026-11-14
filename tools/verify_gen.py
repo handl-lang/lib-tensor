@@ -23,7 +23,7 @@ Check forms (same `check`/`eq` helpers the handwritten section uses):
   check("name", vg_tl(L), vg_tl(H))                   -- tensor lists
 
 Ops that cannot be checked honestly are NEVER emitted as checks:
-  * the 12 `aten_port_gen` stubs (incl. the 3 host seams);
+  * the 4 `aten_port_gen` stubs (incl. the 3 host seams);
   * host-side seams that die under hnl-run (`unique`, `nonzero_dim`);
   * ops needing `math.*` host natives — hnl-run's CatoptKit wires
     tensor.* but NOT plugin-lib-stdlib's math.* leaves, so any op
@@ -210,6 +210,14 @@ FIXTURES = {
     "nan_to_num": [ck("nan_to_num", T_ANG)],
     # ---- unary: math.* leaves (expected env-gated) --------------------
     "exp": [ck("exp", T_EXP)],
+    "exp2": [ck("exp2", T_EXP)],
+    "expm1": [ck("expm1", T_EXP)],
+    "log1p": [ck("log1p", T_POS1)],
+    "mish": [ck("mish", T_EXP)],
+    # softplus: the 25.0 element clears beta*x > threshold (20) so both
+    # recipe arms run; the second check passes explicit beta/threshold.
+    "softplus": [ck("softplus", FL("[-1, 0, 0.5, 25]")),
+                 ck("softplus_params", f"{FL('[-1, 0, 0.5, 25]')}, 2, 10")],
     "log": [ck("log", T_POS1)],
     "log2": [ck("log2", T_POS1)],
     "log10": [ck("log10", T_POS1)],
@@ -265,6 +273,10 @@ FIXTURES = {
     "logical_or": [ck("logical_or", f"{T_LOG_A}, {T_LOG_B}")],
     "logical_xor": [ck("logical_xor", f"{T_LOG_A}, {T_LOG_B}")],
     "logaddexp": [ck("logaddexp", f"{T_BIN_A}, {T_BIN_B}")],
+    "logaddexp2": [ck("logaddexp2", f"{T_BIN_A}, {T_BIN_B}")],
+    "copysign": [ck("copysign", f"{T_BIN_A}, {T_BIN_B}")],
+    "nextafter": [ck("nextafter",
+                     f"{FL('[1.0, 2.0, -1.0, 0.5]')}, {FL('[2.0, 1.0, -2.0, -0.5]')}")],
     "remainder": [ck("remainder", f"{T_BIN_A}, {T_BIN_B}")],
     "heaviside": [ck("heaviside", f"{T_HV_A}, {T_HV_B}")],
     "xlogy": [ck("xlogy", f"{T_XLOG_A}, {T_XLOG_B}")],

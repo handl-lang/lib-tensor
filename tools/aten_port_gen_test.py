@@ -96,7 +96,9 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(self._cls("mm"), "driver")
 
     def test_stub(self):
-        self.assertEqual(self._cls("exp2"), "stub")
+        # exp2 flipped to a real recipe once math.exp2 landed; einsum
+        # remains the only honest stub besides the host seams.
+        self.assertEqual(self._cls("exp2"), "unary")
         self.assertEqual(self._cls("einsum"), "stub")
 
     def test_seams_are_stubs(self):
