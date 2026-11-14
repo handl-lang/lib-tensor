@@ -157,6 +157,18 @@ class TestGeneratedOutput(unittest.TestCase):
                 ename = e["hnl"] + "_"
                 self.assertTrue(ename.endswith("_"))
 
+    def test_searchsorted_binds_schema_positions(self):
+        # schema: searchsorted(sorted_sequence, self, *, out_int32,
+        # right, side, sorter) — t = sorted_sequence, rest =
+        # [self, out_int32, right, side, sorter]. right is rest[2],
+        # NOT rest[1] (that is out_int32, accepted-and-ignored).
+        body = g.gen_driver("searchsorted", g.DRIVER["searchsorted"])
+        self.assertIn("aten_req(rest, 0)", body)
+        self.assertIn("aten_opt(rest, 2, false)", body)
+        self.assertIn("aten_opt(rest, 3, null)", body)
+        self.assertIn("aten_opt(rest, 4, null)", body)
+        self.assertNotIn("aten_opt(rest, 1, false)", body)
+
     def test_deterministic_classification(self):
         entries = g.parse_port_list(g.PORT_LIST)
         c1 = [g.classify(e)[0] for e in entries]

@@ -20,11 +20,12 @@ Inputs (host-tensor is read-only reference material):
 Outputs:
 
 - `src/aten/{binary,construct,index,linalg,misc,nn,pred,reduce,
-  sortsel,stub,unary}.hnl` — 207 generated exports, ~4.9k lines total
+  sortsel,stub,unary}.hnl` — 207 generated exports, ~1.4k lines
+  across the 11 family files
 - `src/index.hnl` — spliced import/export/`ltensor` record block
   between `// aten-port-gen: begin` / `// aten-port-gen: end` markers
 - `src/internal/aten.hnl` — shared transparent helper layer
-  (~3.5k lines): broadcasting, reductions, argsorts, indexing,
+  (~3.6k lines): broadcasting, reductions, argsorts, indexing,
   constructors, linalg, pooling, norms, cumsum, sort/topk/median/mode,
   gather/scatter/index-*, shape transforms, etc.
 
@@ -110,8 +111,8 @@ a pretend implementation.
   (one ULP) → stubbed.
 - **RNG / uninitialized memory**: `empty`, `rand`, `normal` → seams.
 - **Tuple/multi returns**: `unique`, `nonzero_static`, `sort`/`topk`
-  values+indices (sort/topk return records and are implemented; unique
-  remains a seam).
+  values+indices — all return records and are implemented (the
+  `unique`/`nonzero_dim` seams closed via handwritten drivers).
 - **String/equation args**: `einsum` equation parsing → seam.
 - **`out=` mutation params**: ignored by wrappers (functional style).
 - **dtype args**: `ScalarType?` params accepted but mostly ignored —
@@ -122,8 +123,10 @@ a pretend implementation.
 ## Verification status
 
 - `python3 tools/aten_port_gen.py --check` — 207 entries classified,
-  deterministic (writes only without `--check`).
-- `python3 tools/aten_port_gen_test.py` — 20 unit tests, all pass
+  then byte-diffs every generated file (`src/aten/*.hnl` +
+  `src/index.hnl`) against a fresh emit; exits nonzero on drift or
+  stale files. Writes only without `--check`.
+- `python3 tools/aten_port_gen_test.py` — 22 unit tests, all pass
   (port-list parsing, schema resolution, literal rendering, overload
   classification, seam preservation, reserved-name handling
   `sort`/`where` → `sort_`/`where_`, ASCII-safe stub bodies,
@@ -179,7 +182,7 @@ a pretend implementation.
 
 ```sh
 python3 tools/aten_port_gen.py          # rewrite src/aten/* + splice index.hnl
-python3 tools/aten_port_gen.py --check  # dry run: counts only
+python3 tools/aten_port_gen.py --check  # drift gate: byte-diff, exit 1 on mismatch
 python3 tools/aten_port_gen_test.py     # unit tests
 ```
 

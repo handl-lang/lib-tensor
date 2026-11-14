@@ -2939,15 +2939,28 @@ export aten_topk := (t, k, dim, largest) ~> do {
   ({ v: vv, i: ii })
 }
 
---- aten_searchsorted(sorted, self, right) -- host k_searchsorted
--- simplified: self must be a tensor (scalar-self variant handled
--- by wrapping rank-0); binary search per row of the last dim.
-export aten_searchsorted := (sorted, self_t, rgt) ~> do {
+--- aten_searchsorted(sorted, self, right, side, sorter) -- host
+--- k_searchsorted. `side` ("left"/"right") overrides `right`;
+--- a non-null `sorter` dies — host parity. `out_int32` is accepted
+--- and ignored by the generated wrapper (indices are always f64).
+--- simplified: self must be a tensor (scalar-self variant handled
+--- by wrapping rank-0); binary search per row of the last dim.
+export aten_searchsorted := (sorted, self_t, rgt, side, sorter) ~> do {
   ws :: as_wire(sorted)
   ssh :: ws.__tensor__.shape
   rank :: len(ssh)
   check :: if rank >= 1 { true } else {
     die("aten.searchsorted: sorted must have rank >= 1")
+  }
+  sorter_chk :: if sorter == null { true } else {
+    die("aten.searchsorted: sorter argument unsupported")
+  }
+  rgt_eff :: if side == null { rgt } else {
+    if side == "right" { true } else {
+      if side == "left" { false } else {
+        die("aten.searchsorted: side must be \"left\" or \"right\"")
+      }
+    }
   }
   n :: ssh[rank - 1]
   sdata :: ws.__tensor__.data
@@ -2958,7 +2971,17 @@ export aten_searchsorted := (sorted, self_t, rgt) ~> do {
       do {
         mid :: aten_floor((lo + hi) / 2)
         mv :: sdata[rowbase + mid]
-        adv :: if rgt { mv > v } else { mv < v }
+        -- host k_searchsorted: right=true is upper_bound — advance
+        -- lo while mv <= v (first index with row[i] > v); right=false
+        -- is lower_bound — advance while mv < v (first index >= v).
+        -- NaN guards mirror the host partial_cmp None arms; NaN
+        -- cannot cross the wire, so they are dead on wire inputs.
+        nanq :: (mv != mv) || (v != v)
+        adv :: if rgt_eff {
+          if nanq { v != v } else { mv <= v }
+        } else {
+          if nanq { v == v } else { mv < v }
+        }
         { state: { lo: if adv { mid + 1 } else { lo },
                    hi: if adv { hi } else { mid } } }
       }

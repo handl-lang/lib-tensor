@@ -21,7 +21,6 @@ from "../internal/aten.hnl" import {
   aten_nanmean, aten_full, aten_full_like, aten_zeros_like,
   aten_ones_like, aten_arange, aten_linspace, aten_eye, aten_sort_select,
   aten_id, aten_dot_wrap, aten_expand_as, aten_reshape_view, aten_mean,
-  aten_ow, aten_owl,
   aten_maxmin, aten_allany, aten_prelu, aten_where_op, aten_clamp_op,
   aten_floor, aten_ceil, aten_trunc, aten_fract, aten_round, aten_abs,
   aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
@@ -72,7 +71,7 @@ export kthvalue := (t, ...rest) ~> aten_kthvalue(t, aten_req(rest, 0), aten_opt(
 export quantile := (t, ...rest) ~> aten_ow(aten_quantile(t, rest))
 
 -- aten: aten::searchsorted.Tensor(Tensor sorted_sequence, Tensor self, *, bool out_int32=False, bool right=False, str side=None, Tensor sorter=None) -> Tensor
-export searchsorted := (t, ...rest) ~> aten_ow(aten_searchsorted(t, aten_req(rest, 0), aten_opt(rest, 1, false)))
+export searchsorted := (t, ...rest) ~> aten_ow(aten_searchsorted(t, aten_req(rest, 0), aten_opt(rest, 2, false), aten_opt(rest, 3, null), aten_opt(rest, 4, null)))
 
 -- aten: aten::msort(Tensor self) -> Tensor
 export msort := (t, ...rest) ~> aten_ow(aten_msort(t))

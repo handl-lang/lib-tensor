@@ -21,7 +21,6 @@ from "../internal/aten.hnl" import {
   aten_nanmean, aten_full, aten_full_like, aten_zeros_like,
   aten_ones_like, aten_arange, aten_linspace, aten_eye, aten_sort_select,
   aten_id, aten_dot_wrap, aten_expand_as, aten_reshape_view, aten_mean,
-  aten_ow, aten_owl,
   aten_maxmin, aten_allany, aten_prelu, aten_where_op, aten_clamp_op,
   aten_floor, aten_ceil, aten_trunc, aten_fract, aten_round, aten_abs,
   aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,

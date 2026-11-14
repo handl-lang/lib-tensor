@@ -278,7 +278,10 @@ DRIVER = {
     "bincount": (D+"bincount", [("weights", True, "null"), ("minlength", True, 0)], "sd", None, None),
     "corrcoef": (D+"corrcoef", [], "sd", None, None),
     "to": (D+"to", [("spec", False, None)], "sd", None, None),
-    "searchsorted": (D+"searchsorted", [("sorted", False, None), ("self_", False, None), ("right", True, False)], "sd", None, None),
+    # rest = [self, out_int32, right, side, sorter] (t = sorted_sequence);
+    # the special-case call below binds them — out_int32 is ignored
+    # (f64 wire), side overrides right, sorter dies in the driver.
+    "searchsorted": (D+"searchsorted", [("self_", False, None), ("_out_int32", True, False), ("right", True, False), ("_side", True, None), ("_sorter", True, None)], "sd", None, None),
     "meshgrid": (D+"meshgrid", [("_list", False, None)], "listwire", None, None),
     # multi-arg dispatch
     "max": (D+"maxmin", [("_rest", False, None)], "maxmin", "true", None),
@@ -386,7 +389,6 @@ IMPORTS = """from "../internal/aten.hnl" import {
   aten_nanmean, aten_full, aten_full_like, aten_zeros_like,
   aten_ones_like, aten_arange, aten_linspace, aten_eye, aten_sort_select,
   aten_id, aten_dot_wrap, aten_expand_as, aten_reshape_view, aten_mean,
-  aten_ow, aten_owl,
   aten_maxmin, aten_allany, aten_prelu, aten_where_op, aten_clamp_op,
   aten_floor, aten_ceil, aten_trunc, aten_fract, aten_round, aten_abs,
   aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
@@ -460,20 +462,8 @@ def arg_expr(param, idx, optional, default):
 def gen_driver(op, spec):
     driver, params, ret = spec[0], spec[1], spec[2]
     extra = spec[3:]
-    # assign rest indices only to real params (skip _-prefixed)
-    real = [p for p in params if not p[0].startswith("_")]
-    lines = []
-    call_args = []
-    ridx = 0
-    for p in params:
-        name, opt, default = p
-        if name.startswith("_"):
-            call_args.append(hnl_lit(default) if default is not None else "null")
-            continue
-        e = arg_expr(name, ridx, opt, default)
-        ridx += 1
-        call_args.append(e if e else "null")
-    # fix: _-params interleaved — rebuild call_args in param order
+    # rest indices count only non-_-prefixed params (literal/flag
+    # params are not rest args)
     call_args = []
     ridx = 0
     for p in params:
@@ -533,29 +523,22 @@ def gen_driver(op, spec):
         pass  # handled by ret below
     if op == "stack":
         call = "aten_stack(t, aten_opt(rest, 0, 0))"
-    if op == "meshgrid":
-        call = "aten_meshgrid(t)"
-    if op == "searchsorted":
-        call = ("aten_searchsorted(t, aten_req(rest, 0), "
-                "aten_opt(rest, 2, false))")
 
     # special drivers needing custom first args
-    if op == "stack_orig":
-        call = f"aten_stack(aten_req(rest, 0), aten_opt(rest, 1, 0))"
     if op == "meshgrid":
         call = "aten_meshgrid([t, ...rest])"
-    if op == "arange":
-        call = "aten_arange([t, ...rest])"
     if op == "narrow":
         # aten_slice_dim(t, dim, start, len)
         call = f"aten_slice_dim(t, aten_req(rest, 0), aten_req(rest, 1), aten_req(rest, 2))"
     if op == "searchsorted":
-        # schema: searchsorted(sorted_seq, self, ...) — t is `sorted`?
-        # host k_searchsorted(sorted, self): port list pins tensor.searchsorted
-        # with self first? ATen: searchsorted(sorted_sequence, self).
-        # We treat t=sorted_sequence, rest=[self, right?].
+        # schema: searchsorted(sorted_sequence, self, *, out_int32,
+        # right, side, sorter) — t is sorted_sequence; rest =
+        # [self, out_int32, right, side, sorter]. out_int32 is
+        # accepted-and-ignored; side/sorter are forwarded to the
+        # driver (side overrides right; non-null sorter dies).
         call = ("aten_searchsorted(t, aten_req(rest, 0), "
-                "aten_opt(rest, 1, false))")
+                "aten_opt(rest, 2, false), aten_opt(rest, 3, null), "
+                "aten_opt(rest, 4, null))")
     if op == "cross":
         call = "aten_cross(t, aten_req(rest, 0), aten_opt(rest, 1, -1))"
     if op == "where":
@@ -735,17 +718,8 @@ def main():
         else:
             report["clean"] += 1
 
-    if check:
-        # dry run: report only, touch nothing
-        print(f"entries: {len(entries)}  clean: {report['clean']}  "
-              f"unsupported/stub: {report['unsupported']}  "
-              f"handwritten-skip: {report['skip']}  seams: {report['seam']}")
-        for n in report["notes"]:
-            print("  note:", n)
-        return
-
-    # emit files
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    # emit: build every output in memory first so --check can diff
+    # without touching the tree.
     fam_ops = {f: [] for f in FAMILIES}
     for e, cls, detail, rec in plans:
         if cls == "skip":
@@ -753,7 +727,7 @@ def main():
         fam = next((f for f, names in FAMILIES.items() if e["hnl"] in names), "misc")
         fam_ops.setdefault(fam, []).append((e, cls, detail, rec))
 
-    written = []
+    outputs = {}  # Path -> full file text
     for fam, ops in sorted(fam_ops.items()):
         if not ops:
             continue
@@ -781,8 +755,7 @@ def main():
             elif cls == "stub":
                 body.append(gen_stub(e["hnl"], detail))
             body.append("\n\n")
-        path.write_text("".join(body))
-        written.append(path)
+        outputs[path] = "".join(body)
 
     # index.hnl splice
     idx = INDEX.read_text()
@@ -796,13 +769,20 @@ def main():
         if e["hnl"] not in ("sort", "where"):
             exports.append(f"export {e['hnl']} := __aten_{e['hnl']}")
         fields.append(f"  {e['hnl']}: __aten_{e['hnl']},")
+    # block ends at END (no trailing newline): `post` already carries
+    # the newline that ended the END line, so appending one here used
+    # to accumulate a blank line per regen.
     block = (BEGIN + "\n" + "\n".join(imports) + "\n\n"
-             + "\n".join(exports) + "\n" + END + "\n")
+             + "\n".join(exports) + "\n" + END)
     ltensor_fields = "\n".join(fields) + "\n"
 
     if BEGIN in idx:
         pre, rest = idx.split(BEGIN, 1)
         _, post = rest.split(END, 1)
+        # collapse the blank run after END (bug-era regens accumulated
+        # one per run) to a single blank line — keeps emit idempotent
+        if post.startswith("\n"):
+            post = "\n\n" + post.lstrip("\n")
         idx = pre + block + post
         # replace ltensor fields region: regenerate whole ltensor record
         m = re.search(r"export ltensor := \{.*?\n\}", idx, re.S)
@@ -814,13 +794,13 @@ def main():
     else:
         # append import/export block before `export ltensor`, fields inside
         lt = idx.index("export ltensor := {")
-        idx = idx[:lt] + block + "\n" + idx[lt:]
+        idx = idx[:lt] + block + "\n\n" + idx[lt:]
         m = re.search(r"export ltensor := \{.*?\n\}", idx, re.S)
         inner = m.group(0)
         inner = re.sub(r"\n  \w+: __aten_\w+,", "", inner)
         inner = inner.rstrip()[:-1].rstrip() + "\n" + ltensor_fields + "}"
         idx = idx[:m.start()] + inner + idx[m.end():]
-    INDEX.write_text(idx)
+    outputs[INDEX] = idx
 
     # summary
     print(f"entries: {len(entries)}  clean: {report['clean']}  "
@@ -828,10 +808,30 @@ def main():
           f"handwritten-skip: {report['skip']}  seams: {report['seam']}")
     for n in report["notes"]:
         print("  note:", n)
-    for p in written:
-        print("wrote", p.relative_to(REPO))
+
     if check:
+        # real check: byte-diff every generated file (plus flag any
+        # stale src/aten/*.hnl the emit no longer produces)
+        drift = []
+        for path, text in sorted(outputs.items()):
+            if not path.exists() or path.read_text() != text:
+                drift.append(path)
+        for stale in sorted(OUT_DIR.glob("*.hnl")):
+            if stale not in outputs:
+                drift.append(stale)
+        if drift:
+            for p in drift:
+                print("DRIFT:", p.relative_to(REPO))
+            print(f"{len(drift)} file(s) differ from generated output — "
+                  "rerun without --check to regenerate")
+            return 1
+        print(f"no drift: {len(outputs)} files match generated output")
         return 0
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for path, text in outputs.items():
+        path.write_text(text)
+        print("wrote", path.relative_to(REPO))
     return 0
 
 

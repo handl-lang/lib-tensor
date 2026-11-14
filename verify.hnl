@@ -34,6 +34,9 @@ do {
   bn_m := tensor.from_list([0, 3])
   bn_v := tensor.from_list([1, 4])
   grad := tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]])
+  ss := tensor.from_list([1, 2, 2, 4])
+  ssq := tensor.from_list([2, 3])
+  ss2 := tensor.from_list([[1, 2, 2, 4], [0, 0, 3, 5]])
 
   [
     eq("zeros", lt.zeros([2, 2]), tensor.zeros([2, 2])),
@@ -86,6 +89,16 @@ do {
     check("reshape_bwd", tensor.to_list((lt.reshape_backward(x23, [3, 2], tensor.from_list([[1, 2], [3, 4], [5, 6]]))).input), tensor.to_list((tensor.reshape_backward(x23, [3, 2], tensor.from_list([[1, 2], [3, 4], [5, 6]]))).input)),
     check("transpose_bwd", tensor.to_list((lt.transpose_backward(x23, 0, 1, tensor.from_list([[1, 4], [2, 5], [3, 6]]))).input), tensor.to_list((tensor.transpose_backward(x23, 0, 1, tensor.from_list([[1, 4], [2, 5], [3, 6]]))).input)),
     check("concat_bwd", tensor.to_list((lt.concat_backward([x23b, x23b], 0, tensor.from_list([1, 2, 3, 4, 5, 6])).xs)[1]), tensor.to_list((tensor.concat_backward([x23b, x23b], 0, tensor.from_list([1, 2, 3, 4, 5, 6])).xs)[1])),
-    check("derive_reshape", tensor.derive("reshape"), lt.derive("reshape"))
+    check("derive_reshape", tensor.derive("reshape"), lt.derive("reshape")),
+    -- searchsorted: rest = [self, out_int32, right, side, sorter];
+    -- right=true is upper_bound, side overrides right, out_int32
+    -- accepted-and-ignored (f64 wire).
+    eq("searchsorted_left", lt.searchsorted(ss, ssq), tensor.searchsorted(ss, ssq)),
+    eq("searchsorted_right", lt.searchsorted(ss, ssq, null, true), tensor.searchsorted(ss, ssq, null, true)),
+    eq("searchsorted_out_int32", lt.searchsorted(ss, ssq, true, true), tensor.searchsorted(ss, ssq, true, true)),
+    eq("searchsorted_side_right", lt.searchsorted(ss, ssq, null, false, "right"), tensor.searchsorted(ss, ssq, null, false, "right")),
+    eq("searchsorted_side_left", lt.searchsorted(ss, ssq, null, true, "left"), tensor.searchsorted(ss, ssq, null, true, "left")),
+    eq("searchsorted_batched", lt.searchsorted(ss2, ssq), tensor.searchsorted(ss2, ssq)),
+    eq("searchsorted_scalar", lt.searchsorted(ss, 2.5), tensor.searchsorted(ss, 2.5))
   ]
 }
