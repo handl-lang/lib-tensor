@@ -27,7 +27,8 @@ from "../internal/aten.hnl" import {
   aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
   aten_sign, aten_f64_max,
   aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
-  aten_mode, aten_kthvalue, aten_quantile
+  aten_mode, aten_kthvalue, aten_quantile, aten_unique,
+  aten_nonzero_static
 }
 from "../internal/helpers.hnl" import {
   die, len, product, replicate, set, slice, strides, unravel, dot,

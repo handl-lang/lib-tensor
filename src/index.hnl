@@ -275,8 +275,8 @@ from "./aten/nn.hnl" import avg_pool2d as __aten_avg_pool2d
 from "./aten/stub.hnl" import empty as __aten_empty
 from "./aten/stub.hnl" import rand as __aten_rand
 from "./aten/stub.hnl" import normal as __aten_normal
-from "./aten/stub.hnl" import unique as __aten_unique
-from "./aten/stub.hnl" import nonzero_dim as __aten_nonzero_dim
+from "./aten/index.hnl" import unique as __aten_unique
+from "./aten/index.hnl" import nonzero_dim as __aten_nonzero_dim
 from "./aten/stub.hnl" import einsum as __aten_einsum
 from "./aten/linalg.hnl" import tensordot as __aten_tensordot
 from "./aten/linalg.hnl" import kron as __aten_kron
@@ -512,6 +512,8 @@ export nanmean := __aten_nanmean
 export cdist := __aten_cdist
 export pdist := __aten_pdist
 -- <<< aten-port-gen <<<
+
+
 
 
 

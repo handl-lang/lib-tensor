@@ -14,8 +14,9 @@ Design: every curated pin maps to a *recipe* calling the shared
 drivers in src/internal/aten.hnl (the .hnl port of
 host-tensor/src/ops/aten_kernels.rs). Ops with no honest .hnl recipe
 emit `aten_stub`, which dies loudly — the same "declared seam"
-contract the host keeps. The five host seams (empty, rand, normal,
-unique, nonzero_dim) plus einsum are stubs by construction.
+contract the host keeps. The three remaining host seams (empty, rand,
+normal) plus einsum are stubs by construction; `unique` and
+`nonzero_dim` have handwritten drivers in `src/internal/aten.hnl`.
 
 Usage:  python3 tools/aten_port_gen.py [--check]
 """
@@ -141,8 +142,6 @@ STUBS = {
     "empty": "uninitialized fill cannot be represented on the wire",
     "rand": "RNG state is not part of the wire contract; nondeterminism breaks verification",
     "normal": "RNG state is not part of the wire contract",
-    "unique": "(values, indices, inverse) tuple + ordering semantics need handwritten glue",
-    "nonzero_dim": "dim-arg variant with tuple return needs handwritten semantics",
     "einsum": "equation-string arg + general contraction engine — handwritten seam (host has a dedicated parser)",
     "exp2": "math.* has no exp2; math.pow(2,x) is not bit-identical",
     "expm1": "math.* has no expm1",
@@ -196,6 +195,8 @@ DRIVER = {
     "quantile": (D+"quantile", [("q", False, None)], "sd_rest", None, None),
     "nonzero": (D+"nonzero", [], "sd", None, None),
     "argwhere": (D+"nonzero", [], "sd", None, None),
+    "unique": (D+"unique", [("sorted", True, True), ("return_inverse", True, False)], "rec", None, None),
+    "nonzero_dim": (D+"nonzero_static", [("size", False, None), ("fill_value", True, -1)], "sd", None, None),
     # indexing / shape
     "index_select": (D+"index_select", [("dim", False, None), ("idxs", False, None)], "sd", None, None),
     "gather": (D+"gather", [("dim", False, None), ("idx", False, None)], "sd", None, None),
@@ -338,7 +339,7 @@ FAMILIES = {
                "max","min"],
     "sortsel": ["sort","argsort","topk","msort","median","mode","kthvalue",
                 "quantile","searchsorted"],
-    "index": ["nonzero","argwhere","index_select","gather","index_add",
+    "index": ["nonzero","argwhere","unique","nonzero_dim","index_select","gather","index_add",
               "index_fill","take","squeeze","flatten","expand","expand_as",
               "narrow","slice","chunk","split","stack","unbind","repeat",
               "flip","triu","tril","diag","diagonal","trace","t","mT",
@@ -353,7 +354,7 @@ FAMILIES = {
                    "linspace","logspace","eye","numel","dim","size",
                    "stride","item","is_contiguous","bincount","corrcoef",
                    "to","meshgrid"],
-    "stub": ["empty","rand","normal","unique","nonzero_dim","einsum",
+    "stub": ["empty","rand","normal","einsum",
              "exp2","expm1","log1p","logaddexp2","mish","softplus",
              "copysign","nextafter"],
 }
@@ -391,7 +392,8 @@ IMPORTS = """from "../internal/aten.hnl" import {
   aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
   aten_sign, aten_f64_max,
   aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
-  aten_mode, aten_kthvalue, aten_quantile
+  aten_mode, aten_kthvalue, aten_quantile, aten_unique,
+  aten_nonzero_static
 }
 from "../internal/helpers.hnl" import {
   die, len, product, replicate, set, slice, strides, unravel, dot,

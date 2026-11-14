@@ -33,24 +33,32 @@ Outputs:
 | class | count |
 |---|---|
 | entries in port list | 207 |
-| clean (generated wrapper over shared helpers) | 193 |
-| unsupported / explicit stub | 14 |
+| clean (generated wrapper over shared helpers) | 195 |
+| unsupported / explicit stub | 12 |
 | handwritten-skip | 0 |
-| host-declared seams (subset of stubs) | 5 |
+| host-declared seams (subset of stubs) | 3 |
 
-Class breakdown of the 207: `driver` 118, `unary` 37, `bin` 21,
-`compose` 10, `pred` 7, `stub` 14.
+Class breakdown of the 207: `driver` 120, `unary` 37, `bin` 21,
+`compose` 10, `pred` 7, `stub` 12.
 
-### The five host seams (all emit `die("aten.<op>: ...")` stubs)
+### The three host seams (all emit `die("aten.<op>: ...")` stubs)
 
 - `empty` — uninitialized fill cannot be represented on the wire
 - `rand` — RNG state is not part of the wire contract; nondeterminism
   breaks verification
 - `normal` — same RNG reason
-- `unique` — `(values, indices, inverse)` tuple return + ordering
-  semantics need handwritten glue
-- `nonzero_dim` (`aten::nonzero_static`) — dim-arg variant with tuple
-  return needs handwritten semantics
+
+### Closed since first emit (2)
+
+- `unique` (`aten::_unique`) — handwritten `aten_unique` driver:
+  flat unique over row-major data, `{values, indices}` record encoding
+  (sorted ascending NaN-last, or first-occurrence order under
+  `sorted=False`; `return_inverse` inert per the schema's fixed
+  2-tuple return) — matches host `k_unique`.
+- `nonzero_dim` (`aten::nonzero_static`) — handwritten
+  `aten_nonzero_static` driver: `[size, rank]` output, first `nnz`
+  rows = nonzero coords, rest `fill_value`; `size < nnz` dies —
+  matches host `k_nonzero_static`.
 
 ### Other explicit stubs (9)
 
@@ -58,6 +66,33 @@ Class breakdown of the 207: `driver` 118, `unary` 37, `bin` 21,
 non-bit-identical `math.*` leaves), `nextafter` (needs f64 bit
 patterns), `copysign` (sign-of-zero semantics), `einsum` (equation-string
 arg + general contraction engine — host has a dedicated parser).
+
+### What would close the math stubs (vocab extension, not done here)
+
+Eight of the nine non-seam stubs need five new `math.*` leaves — all
+are thin `unary_fn!`/`bin_op!` natives plus the usual
+lib-math → lib-math-c → lib-math-js wrapper chain:
+
+| leaf | unblocks | host recipe once the leaf exists |
+|---|---|---|
+| `math.exp2` (`f64::exp2`) | `exp2`, `logaddexp2` | `math.exp2(x)`; logaddexp2 mirrors `logaddexp` with `exp2`/`log2` |
+| `math.expm1` (`f64::exp_m1`) | `expm1` | `math.expm1(x)` |
+| `math.log1p` (`f64::ln_1p`) | `log1p`, `mish`, `softplus` | `math.log1p(x)`; `mish` = `x * math.tanh(math.log1p(math.exp(x)))`; `softplus` = host `k_softplus` threshold branch (`beta*x > threshold → x`, else `log1p(exp(beta*x))/beta`) |
+| `math.nextafter` (`f64::next_up`/`from_bits` step) | `nextafter` | `math.nextafter(x, y)` — one-ULP step needs bit patterns no .hnl expr reaches |
+| `math.copysign` (`f64::copysign`) | `copysign` | `math.copysign(x, y)` — sign-of-zero semantics need bit-level access |
+
+Recipes must match the host kernels bit-for-bit (`k_mish`,
+`k_softplus`, `k_logaddexp2` in `host-tensor/src/ops/aten_kernels.rs`)
+since `verify.hnl` compares exact f64 equality — `math.pow(2, x)` is
+*not* a substitute for `exp2`, and `exp(x) - 1` / `log(1 + x)` lose
+precision for small `|x|`.
+
+`einsum` is the remaining non-seam stub and needs no leaf — it needs
+the equation-string parser ported to `.hnl` (host `k_einsum`,
+~400 lines: explicit/implicit equations, ellipsis batch dims,
+≥2 operands). Everything else (`empty`, `rand`, `normal`) is
+genuinely unsupported: uninitialized fill and RNG state have no honest
+wire representation.
 
 Every stub body is `die("aten.<op>: <reason>")` — an honest failure, not
 a pretend implementation.

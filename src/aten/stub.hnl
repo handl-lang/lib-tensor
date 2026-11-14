@@ -27,7 +27,8 @@ from "../internal/aten.hnl" import {
   aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
   aten_sign, aten_f64_max,
   aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
-  aten_mode, aten_kthvalue, aten_quantile
+  aten_mode, aten_kthvalue, aten_quantile, aten_unique,
+  aten_nonzero_static
 }
 from "../internal/helpers.hnl" import {
   die, len, product, replicate, set, slice, strides, unravel, dot,
@@ -93,18 +94,6 @@ export rand := (t, ...rest) ~> do {
 -- aten: aten::normal.Tensor_float(Tensor mean, float std=1., *, Generator generator=None) -> Tensor
 export normal := (t, ...rest) ~> do {
   die("aten.normal: RNG state is not part of the wire contract")
-}
-
-  -- SEAM (host-declared)
--- aten: aten::_unique(Tensor self, bool sorted=True, bool return_inverse=False) -> (Tensor, Tensor)
-export unique := (t, ...rest) ~> do {
-  die("aten.unique: (values, indices, inverse) tuple + ordering semantics need handwritten glue")
-}
-
-  -- SEAM (host-declared)
--- aten: aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor
-export nonzero_dim := (t, ...rest) ~> do {
-  die("aten.nonzero_dim: dim-arg variant with tuple return needs handwritten semantics")
 }
 
 -- aten: aten::einsum(str equation, Tensor[] tensors, *, int[] path=None) -> Tensor

@@ -26,7 +26,7 @@ class TestPortListParsing(unittest.TestCase):
     def test_seams_marked(self):
         entries = g.parse_port_list(g.PORT_LIST)
         seams = {e["hnl"] for e in entries if e["seam"]}
-        self.assertEqual(seams, {"empty", "rand", "normal", "unique", "nonzero_dim"})
+        self.assertEqual(seams, {"empty", "rand", "normal"})
 
     def test_comments_and_blanks_skipped(self):
         entries = g.parse_port_list(g.PORT_LIST)
@@ -100,10 +100,16 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(self._cls("einsum"), "stub")
 
     def test_seams_are_stubs(self):
-        for seam in ("empty", "rand", "normal", "unique", "nonzero_dim"):
+        for seam in ("empty", "rand", "normal"):
             cls, why = g.classify(self.entries[seam])
             self.assertEqual(cls, "stub", seam)
             self.assertTrue(why, seam)
+
+    def test_unique_nonzero_dim_are_drivers(self):
+        # closed seams: handwritten .hnl drivers in internal/aten.hnl
+        for op in ("unique", "nonzero_dim"):
+            cls, _ = g.classify(self.entries[op])
+            self.assertEqual(cls, "driver", op)
 
     def test_no_clean_classifies_stub(self):
         # every non-seam, non-stub entry must land in a generatable class

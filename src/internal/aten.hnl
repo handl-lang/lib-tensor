@@ -1089,6 +1089,140 @@ export aten_nonzero := (t) ~> do {
   aten_T([cnt, r], res)
 }
 
+--- aten_nonzero_static(t, size, fill_value) -- the sized variant of
+--- nonzero (host k_nonzero_static / aten::nonzero_static): a
+--- [size, rank] tensor whose first nnz rows are the nonzero coords
+--- (same row-major order as aten_nonzero) and whose remaining rows
+--- are fill_value. size < nnz dies — the ATen contract trusts the
+--- caller's capacity hint.
+export aten_nonzero_static := (t, size, fill_value) ~> do {
+  w :: as_wire(t)
+  nz :: aten_nonzero(w)
+  nnz :: nz.s[0]
+  r :: nz.s[1]
+  if nnz > size {
+    die("aten.nonzero_dim: size cannot hold nnz index rows")
+  } else {
+    pad :: replicate(fill_value, (size - nnz) * r)
+    aten_T([size, r], [...take(nz.d, nnz * r), ...pad])
+  }
+}
+
+--- aten_unique(t, sorted, return_inverse) -- aten::_unique flat
+--- semantics (host k_unique): values = the unique elements of the
+--- row-major data, indices = flat index of each value's first
+--- occurrence. sorted=true orders values ascending with NaN last and
+--- NaN == NaN; sorted=false orders by first occurrence. The sort is
+--- stable, so equal values keep flat-index order and the first of a
+--- run is the first occurrence. return_inverse is accepted for
+--- schema parity and inert — `_unique` never returns the inverse
+--- (torch computes it via `_unique2`). Returns
+--- { values: wire, indices: wire } — the ATen 2-tuple record encoding.
+export aten_unique := (t, sorted, return_inverse) ~> do {
+  w :: as_wire(t)
+  src :: w.__tensor__.data
+  n :: len(src)
+  -- decorate (value, flat index)
+  pairs :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < n {
+      { state: { i: i + 1, acc: [...acc, ({ p: src[i], ix: i })] } }
+    } else { { out: acc } }
+  }
+  -- insertion sort by value, NaN last (NaN never precedes; a non-NaN
+  -- always precedes a NaN). Stable: equal values keep index order.
+  srt :: while { i: 1, buf: pairs } {
+    (i, buf) ~> if i < len(buf) {
+      do {
+        cur :: buf[i]
+        ins :: while { j: i, a: buf } {
+          (j, a) ~> if j > 0 {
+            do {
+              pv :: a[j - 1]
+              pv2 :: a[j]
+              precedes :: if pv2.p != pv2.p {
+                false
+              } else {
+                if pv.p != pv.p {
+                  true
+                } else {
+                  pv2.p < pv.p
+                }
+              }
+              if precedes {
+                { state: { j: j - 1, a: set(set(a, j - 1, pv2), j, pv) } }
+              } else { { out: a } }
+            }
+          } else { { out: a } }
+        }
+        { state: { i: i + 1, buf: ins } }
+      }
+    } else { { out: buf } }
+  }
+  -- dedup adjacent equals (== or both NaN), keep first of each run
+  kept :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(srt) {
+      do {
+        cur :: srt[i]
+        dup :: if len(acc) == 0 {
+          false
+        } else {
+          do {
+            last :: acc[len(acc) - 1]
+            (cur.p == last.p) || (cur.p != cur.p && last.p != last.p)
+          }
+        }
+        if dup {
+          { state: { i: i + 1, acc: acc } }
+        } else {
+          { state: { i: i + 1, acc: [...acc, cur] } }
+        }
+      }
+    } else { { out: acc } }
+  }
+  -- sorted=false → first-occurrence order: re-sort kept by flat index
+  ord :: if sorted {
+    kept
+  } else {
+    while { i: 1, buf: kept } {
+      (i, buf) ~> if i < len(buf) {
+        do {
+          cur :: buf[i]
+          ins :: while { j: i, a2: buf } {
+            (j, a2) ~> if j > 0 {
+              do {
+                pv :: a2[j - 1]
+                pv2 :: a2[j]
+                if pv2.ix < pv.ix {
+                  { state: { j: j - 1, a2: set(set(a2, j - 1, pv2), j, pv) } }
+                } else { { out: a2 } }
+              }
+            } else { { out: a2 } }
+          }
+          { state: { i: i + 1, buf: ins } }
+        }
+      } else { { out: buf } }
+    }
+  }
+  vals :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(ord) {
+      do {
+        e :: ord[i]
+        { state: { i: i + 1, acc: [...acc, e.p * 1.0] } }
+      }
+    } else { { out: acc } }
+  }
+  idxs :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(ord) {
+      do {
+        e :: ord[i]
+        { state: { i: i + 1, acc: [...acc, e.ix * 1.0] } }
+      }
+    } else { { out: acc } }
+  }
+  nu :: len(vals)
+  ({ values: wire([nu], vals), indices: wire([nu], idxs) })
+}
+
 --- aten_mm2(a, b) -- strict rank-2 (mxk)x(kxn); the hosts mm2
 -- (skips a == 0 products -- unobservable on finite wire data).
 export aten_mm2 := (a, b) ~> do {

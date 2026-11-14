@@ -27,7 +27,8 @@ from "../internal/aten.hnl" import {
   aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
   aten_sign, aten_f64_max,
   aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
-  aten_mode, aten_kthvalue, aten_quantile
+  aten_mode, aten_kthvalue, aten_quantile, aten_unique,
+  aten_nonzero_static
 }
 from "../internal/helpers.hnl" import {
   die, len, product, replicate, set, slice, strides, unravel, dot,
@@ -144,4 +145,10 @@ export pixel_unshuffle := (t, ...rest) ~> aten_ow(aten_pixel_space_depth(t, aten
 
 -- aten: aten::constant_pad_nd(Tensor self, SymInt[] pad, Scalar value=0) -> Tensor
 export constant_pad_nd := (t, ...rest) ~> aten_ow(aten_constant_pad_nd(t, aten_req(rest, 0), aten_opt(rest, 1, 0)))
+
+-- aten: aten::_unique(Tensor self, bool sorted=True, bool return_inverse=False) -> (Tensor, Tensor)
+export unique := (t, ...rest) ~> aten_unique(t, aten_opt(rest, 0, true), aten_opt(rest, 1, false))
+
+-- aten: aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor
+export nonzero_dim := (t, ...rest) ~> aten_ow(aten_nonzero_static(t, aten_req(rest, 0), aten_opt(rest, 1, -1)))
 
