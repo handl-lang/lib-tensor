@@ -1,0 +1,150 @@
+from "../internal/aten.hnl" import {
+  aten_T, aten_W, aten_ow, aten_owl, aten_is_num, aten_at, aten_opt,
+  aten_opt_num, aten_req, aten_arg_w, aten_wrap_dim, aten_mem,
+  aten_dim_spec, aten_bump, aten_vmap, aten_map1, aten_bin_ss, aten_map3,
+  aten_where, aten_clamp_side, aten_reduce, aten_arg_reduce, aten_cum,
+  aten_softmax, aten_sort_dim, aten_select_dim_index, aten_map_pos,
+  aten_permute, aten_flip, aten_repeat, aten_expand, aten_triu,
+  aten_slice_dim, aten_index_select, aten_unbind, aten_chunk, aten_split,
+  aten_stack, aten_nonzero, aten_mm2, aten_bmm, aten_mv, aten_dot_data,
+  aten_ger, aten_addr, aten_addmv, aten_gather, aten_index_add,
+  aten_take, aten_index_fill, aten_squeeze, aten_flatten, aten_slice,
+  aten_diag, aten_diagonal, aten_trace, aten_t, aten_swapaxes,
+  aten_moveaxis, aten_rot90, aten_reduce_dims_list, aten_p_norm,
+  aten_norm, aten_renorm, aten_normalize, aten_cross, aten_reshape,
+  aten_tensordot, aten_kron, aten_p_dist_rows, aten_cdist, aten_pdist,
+  aten_dist, aten_erf, aten_logsumexp, aten_var_std, aten_layer_norm,
+  aten_rms_norm, aten_glu, aten_avg_pool2d, aten_constant_pad_nd,
+  aten_pixel_space_depth, aten_bincount, aten_corrcoef, aten_to,
+  aten_topk, aten_searchsorted, aten_meshgrid, aten_count_nonzero,
+  null_dims, aten_allclose, aten_is_nonzero, aten_msort, aten_nansum,
+  aten_nanmean, aten_full, aten_full_like, aten_zeros_like,
+  aten_ones_like, aten_arange, aten_linspace, aten_eye, aten_sort_select,
+  aten_id, aten_dot_wrap, aten_expand_as, aten_reshape_view, aten_mean,
+  aten_ow, aten_owl,
+  aten_maxmin, aten_allany, aten_prelu, aten_where_op, aten_clamp_op,
+  aten_floor, aten_ceil, aten_trunc, aten_fract, aten_round, aten_abs,
+  aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
+  aten_sign, aten_f64_max,
+  aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
+  aten_mode, aten_kthvalue, aten_quantile
+}
+from "../internal/helpers.hnl" import {
+  die, len, product, replicate, set, slice, strides, unravel, dot,
+  take, drop, rem_euclid
+}
+from "../codec.hnl" import { wire, as_wire, wire_shape, wire_data }
+from "../elementwise.hnl" import elementwise
+from "math" import * as math
+--- aten-port-gen: binary family ---
+-- aten: aten::heaviside(Tensor self, Tensor values) -> Tensor
+export heaviside := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if x > 0 { 1 } else { if x < 0 { 0 } else { 0.5 * y } }))
+}
+
+-- aten: aten::atan2(Tensor self, Tensor other) -> Tensor
+export atan2 := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> math.atan2(x, y)))
+}
+
+-- aten: aten::hypot(Tensor self, Tensor other) -> Tensor
+export hypot := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> math.hypot(x, y)))
+}
+
+-- aten: aten::logaddexp(Tensor self, Tensor other) -> Tensor
+export logaddexp := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> do {
+  m :: aten_fmax(x, y)
+  m + math.log(math.exp(x - m) + math.exp(y - m))
+}))
+}
+
+-- aten: aten::maximum(Tensor self, Tensor other) -> Tensor
+export maximum := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> aten_fmax(x, y)))
+}
+
+-- aten: aten::minimum(Tensor self, Tensor other) -> Tensor
+export minimum := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> aten_fmin(x, y)))
+}
+
+-- aten: aten::fmod.Tensor(Tensor self, Tensor other) -> Tensor
+export fmod := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> x % y))
+}
+
+-- aten: aten::floor_divide(Tensor self, Tensor other) -> Tensor
+export floor_divide := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> aten_floor(x / y)))
+}
+
+-- aten: aten::remainder.Tensor(Tensor self, Tensor other) -> Tensor
+export remainder := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> do {
+  rr :: x % y
+  if rr != 0 && (rr < 0) != (y < 0) { rr + y } else { rr }
+}))
+}
+
+-- aten: aten::pow.Tensor_Tensor(Tensor self, Tensor exponent) -> Tensor
+export pow := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> math.pow(x, y)))
+}
+
+-- aten: aten::float_power.Tensor_Tensor(Tensor self, Tensor exponent) -> Tensor
+export float_power := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> math.pow(x, y)))
+}
+
+-- aten: aten::eq.Tensor(Tensor self, Tensor other) -> Tensor
+export eq := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if x == y { 1 } else { 0 }))
+}
+
+-- aten: aten::ne.Tensor(Tensor self, Tensor other) -> Tensor
+export ne := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if x != y { 1 } else { 0 }))
+}
+
+-- aten: aten::lt.Tensor(Tensor self, Tensor other) -> Tensor
+export lt := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if x < y { 1 } else { 0 }))
+}
+
+-- aten: aten::le.Tensor(Tensor self, Tensor other) -> Tensor
+export le := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if x <= y { 1 } else { 0 }))
+}
+
+-- aten: aten::gt.Tensor(Tensor self, Tensor other) -> Tensor
+export gt := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if x > y { 1 } else { 0 }))
+}
+
+-- aten: aten::ge.Tensor(Tensor self, Tensor other) -> Tensor
+export ge := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if x >= y { 1 } else { 0 }))
+}
+
+-- aten: aten::xlogy.Tensor(Tensor self, Tensor other) -> Tensor
+export xlogy := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if x == 0 { 0 } else { x * math.log(y) }))
+}
+
+-- aten: aten::logical_and(Tensor self, Tensor other) -> Tensor
+export logical_and := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if (x != 0) && (y != 0) { 1 } else { 0 }))
+}
+
+-- aten: aten::logical_or(Tensor self, Tensor other) -> Tensor
+export logical_or := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if (x != 0) || (y != 0) { 1 } else { 0 }))
+}
+
+-- aten: aten::logical_xor(Tensor self, Tensor other) -> Tensor
+export logical_xor := (a, b, ...rest) ~> do {
+  aten_ow(aten_bin_ss(a, b, (x, y) ~> if (x != 0) != (y != 0) { 1 } else { 0 }))
+}
+

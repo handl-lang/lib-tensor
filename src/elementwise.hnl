@@ -14,7 +14,7 @@ from "./codec.hnl" import { wire, as_wire, wire_shape, wire_data }
 
 --- The broadcast of two shapes: pad the shorter with leading `1`s, then
 --- each pair must be equal or contain a `1`.
-broadcast_shape := (a, b) ~> do {
+export broadcast_shape := (a, b) ~> do {
   r :: if len(a) >= len(b) { len(a) } else { len(b) }
   pa :: [...replicate(1, r - len(a)), ...a]
   pb :: [...replicate(1, r - len(b)), ...b]
@@ -38,7 +38,7 @@ broadcast_shape := (a, b) ~> do {
 --- flat data under broadcast `out_shape`: contiguous row-major strides,
 --- except a dim of `1` (or a missing leading dim) contributes `0`, so
 --- its single index is reused across the stretch.
-broadcast_strides := (shape, out_shape) ~> do {
+export broadcast_strides := (shape, out_shape) ~> do {
   inner :: strides(shape)
   off :: len(out_shape) - len(shape)
   inner_bc :: while { i: 0, acc: [] } {
@@ -55,7 +55,7 @@ broadcast_strides := (shape, out_shape) ~> do {
 --- The driver behind `add`/`mul`/`sub`/`div`: elementwise `f` over the
 --- broadcast of `a` and `b`, accepting the wire record or an opaque
 --- tensor on either side.
-elementwise := (a, b, f) ~> do {
+export elementwise := (a, b, f) ~> do {
   wa :: as_wire(a)
   wb :: as_wire(b)
   ash :: wa.__tensor__.shape
@@ -96,7 +96,7 @@ export div := (a, b) ~> elementwise(a, b, (x, y) ~> x / y)
 --- `bc_data(ds, sh, osh)` — materialize `ds` (flat, shape `sh`)
 --- broadcast to `osh`: the odometer + 0-stride stretch, mirroring
 --- `broadcast_to` in host-tensor's elementwise.rs.
-bc_data := (ds, sh, osh) ~> do {
+export bc_data := (ds, sh, osh) ~> do {
   st :: broadcast_strides(sh, osh)
   n :: product(osh)
   while { i: 0, acc: [] } {

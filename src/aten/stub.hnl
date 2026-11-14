@@ -1,0 +1,114 @@
+from "../internal/aten.hnl" import {
+  aten_T, aten_W, aten_ow, aten_owl, aten_is_num, aten_at, aten_opt,
+  aten_opt_num, aten_req, aten_arg_w, aten_wrap_dim, aten_mem,
+  aten_dim_spec, aten_bump, aten_vmap, aten_map1, aten_bin_ss, aten_map3,
+  aten_where, aten_clamp_side, aten_reduce, aten_arg_reduce, aten_cum,
+  aten_softmax, aten_sort_dim, aten_select_dim_index, aten_map_pos,
+  aten_permute, aten_flip, aten_repeat, aten_expand, aten_triu,
+  aten_slice_dim, aten_index_select, aten_unbind, aten_chunk, aten_split,
+  aten_stack, aten_nonzero, aten_mm2, aten_bmm, aten_mv, aten_dot_data,
+  aten_ger, aten_addr, aten_addmv, aten_gather, aten_index_add,
+  aten_take, aten_index_fill, aten_squeeze, aten_flatten, aten_slice,
+  aten_diag, aten_diagonal, aten_trace, aten_t, aten_swapaxes,
+  aten_moveaxis, aten_rot90, aten_reduce_dims_list, aten_p_norm,
+  aten_norm, aten_renorm, aten_normalize, aten_cross, aten_reshape,
+  aten_tensordot, aten_kron, aten_p_dist_rows, aten_cdist, aten_pdist,
+  aten_dist, aten_erf, aten_logsumexp, aten_var_std, aten_layer_norm,
+  aten_rms_norm, aten_glu, aten_avg_pool2d, aten_constant_pad_nd,
+  aten_pixel_space_depth, aten_bincount, aten_corrcoef, aten_to,
+  aten_topk, aten_searchsorted, aten_meshgrid, aten_count_nonzero,
+  null_dims, aten_allclose, aten_is_nonzero, aten_msort, aten_nansum,
+  aten_nanmean, aten_full, aten_full_like, aten_zeros_like,
+  aten_ones_like, aten_arange, aten_linspace, aten_eye, aten_sort_select,
+  aten_id, aten_dot_wrap, aten_expand_as, aten_reshape_view, aten_mean,
+  aten_ow, aten_owl,
+  aten_maxmin, aten_allany, aten_prelu, aten_where_op, aten_clamp_op,
+  aten_floor, aten_ceil, aten_trunc, aten_fract, aten_round, aten_abs,
+  aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
+  aten_sign, aten_f64_max,
+  aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
+  aten_mode, aten_kthvalue, aten_quantile
+}
+from "../internal/helpers.hnl" import {
+  die, len, product, replicate, set, slice, strides, unravel, dot,
+  take, drop, rem_euclid
+}
+from "../codec.hnl" import { wire, as_wire, wire_shape, wire_data }
+from "../elementwise.hnl" import elementwise
+from "math" import * as math
+--- aten-port-gen: stub family ---
+-- aten: aten::exp2(Tensor self) -> Tensor
+export exp2 := (t, ...rest) ~> do {
+  die("aten.exp2: math.* has no exp2; math.pow(2,x) is not bit-identical")
+}
+
+-- aten: aten::expm1(Tensor self) -> Tensor
+export expm1 := (t, ...rest) ~> do {
+  die("aten.expm1: math.* has no expm1")
+}
+
+-- aten: aten::log1p(Tensor self) -> Tensor
+export log1p := (t, ...rest) ~> do {
+  die("aten.log1p: math.* has no log1p")
+}
+
+-- aten: aten::mish(Tensor self) -> Tensor
+export mish := (t, ...rest) ~> do {
+  die("aten.mish: needs ln_1p  same gap as aten::log1p")
+}
+
+-- aten: aten::softplus(Tensor self, Scalar beta=1, Scalar threshold=20) -> Tensor
+export softplus := (t, ...rest) ~> do {
+  die("aten.softplus: needs ln_1p  same gap as aten::log1p")
+}
+
+-- aten: aten::logaddexp2(Tensor self, Tensor other) -> Tensor
+export logaddexp2 := (t, ...rest) ~> do {
+  die("aten.logaddexp2: needs exp2  same gap as aten::exp2")
+}
+
+-- aten: aten::nextafter(Tensor self, Tensor other) -> Tensor
+export nextafter := (t, ...rest) ~> do {
+  die("aten.nextafter: one-ULP step needs f64 bit patterns the wire lacks")
+}
+
+-- aten: aten::copysign.Tensor(Tensor self, Tensor other) -> Tensor
+export copysign := (t, ...rest) ~> do {
+  die("aten.copysign: sign-of-zero semantics need bit-level access the wire lacks")
+}
+
+  -- SEAM (host-declared)
+-- aten: aten::empty.memory_format(SymInt[] size, *, ScalarType dtype=None, Layout layout=None, Device device=None, bool pin_memory=None, MemoryFormat memory_format=None) -> Tensor
+export empty := (t, ...rest) ~> do {
+  die("aten.empty: uninitialized fill cannot be represented on the wire")
+}
+
+  -- SEAM (host-declared)
+-- aten: aten::rand(SymInt[] size, *, ScalarType dtype=None, Layout layout=None, Device device=None, bool pin_memory=None) -> Tensor
+export rand := (t, ...rest) ~> do {
+  die("aten.rand: RNG state is not part of the wire contract; nondeterminism breaks verification")
+}
+
+  -- SEAM (host-declared)
+-- aten: aten::normal.Tensor_float(Tensor mean, float std=1., *, Generator generator=None) -> Tensor
+export normal := (t, ...rest) ~> do {
+  die("aten.normal: RNG state is not part of the wire contract")
+}
+
+  -- SEAM (host-declared)
+-- aten: aten::_unique(Tensor self, bool sorted=True, bool return_inverse=False) -> (Tensor, Tensor)
+export unique := (t, ...rest) ~> do {
+  die("aten.unique: (values, indices, inverse) tuple + ordering semantics need handwritten glue")
+}
+
+  -- SEAM (host-declared)
+-- aten: aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor
+export nonzero_dim := (t, ...rest) ~> do {
+  die("aten.nonzero_dim: dim-arg variant with tuple return needs handwritten semantics")
+}
+
+-- aten: aten::einsum(str equation, Tensor[] tensors, *, int[] path=None) -> Tensor
+export einsum := (t, ...rest) ~> do {
+  die("aten.einsum: equation-string arg + general contraction engine  handwritten seam (host has a dedicated parser)")
+}
+

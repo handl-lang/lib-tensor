@@ -1,0 +1,78 @@
+from "../internal/aten.hnl" import {
+  aten_T, aten_W, aten_ow, aten_owl, aten_is_num, aten_at, aten_opt,
+  aten_opt_num, aten_req, aten_arg_w, aten_wrap_dim, aten_mem,
+  aten_dim_spec, aten_bump, aten_vmap, aten_map1, aten_bin_ss, aten_map3,
+  aten_where, aten_clamp_side, aten_reduce, aten_arg_reduce, aten_cum,
+  aten_softmax, aten_sort_dim, aten_select_dim_index, aten_map_pos,
+  aten_permute, aten_flip, aten_repeat, aten_expand, aten_triu,
+  aten_slice_dim, aten_index_select, aten_unbind, aten_chunk, aten_split,
+  aten_stack, aten_nonzero, aten_mm2, aten_bmm, aten_mv, aten_dot_data,
+  aten_ger, aten_addr, aten_addmv, aten_gather, aten_index_add,
+  aten_take, aten_index_fill, aten_squeeze, aten_flatten, aten_slice,
+  aten_diag, aten_diagonal, aten_trace, aten_t, aten_swapaxes,
+  aten_moveaxis, aten_rot90, aten_reduce_dims_list, aten_p_norm,
+  aten_norm, aten_renorm, aten_normalize, aten_cross, aten_reshape,
+  aten_tensordot, aten_kron, aten_p_dist_rows, aten_cdist, aten_pdist,
+  aten_dist, aten_erf, aten_logsumexp, aten_var_std, aten_layer_norm,
+  aten_rms_norm, aten_glu, aten_avg_pool2d, aten_constant_pad_nd,
+  aten_pixel_space_depth, aten_bincount, aten_corrcoef, aten_to,
+  aten_topk, aten_searchsorted, aten_meshgrid, aten_count_nonzero,
+  null_dims, aten_allclose, aten_is_nonzero, aten_msort, aten_nansum,
+  aten_nanmean, aten_full, aten_full_like, aten_zeros_like,
+  aten_ones_like, aten_arange, aten_linspace, aten_eye, aten_sort_select,
+  aten_id, aten_dot_wrap, aten_expand_as, aten_reshape_view, aten_mean,
+  aten_ow, aten_owl,
+  aten_maxmin, aten_allany, aten_prelu, aten_where_op, aten_clamp_op,
+  aten_floor, aten_ceil, aten_trunc, aten_fract, aten_round, aten_abs,
+  aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
+  aten_sign, aten_f64_max,
+  aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
+  aten_mode, aten_kthvalue, aten_quantile
+}
+from "../internal/helpers.hnl" import {
+  die, len, product, replicate, set, slice, strides, unravel, dot,
+  take, drop, rem_euclid
+}
+from "../codec.hnl" import { wire, as_wire, wire_shape, wire_data }
+from "../elementwise.hnl" import elementwise
+from "math" import * as math
+--- aten-port-gen: sortsel family ---
+-- aten: aten::sort(Tensor self, int dim=-1, bool descending=False) -> (Tensor values, Tensor indices)
+export sort_ := (t, ...rest) ~> do {
+  s :: aten_sort_dim(t, aten_opt(rest, 0, -1), aten_opt(rest, 1, false))
+  ({ values: aten_W(s.v), indices: aten_W(s.i) })
+}
+
+-- aten: aten::argsort(Tensor self, int dim=-1, bool descending=False) -> Tensor
+export argsort := (t, ...rest) ~> do {
+  s :: aten_sort_dim(t, aten_opt(rest, 0, -1), aten_opt(rest, 1, false))
+  aten_W(s.i)
+}
+
+-- aten: aten::topk(Tensor self, SymInt k, int dim=-1, bool largest=True, bool sorted=True) -> (Tensor values, Tensor indices)
+export topk := (t, ...rest) ~> do {
+  r :: aten_topk(t, aten_req(rest, 0), aten_opt(rest, 1, -1), aten_opt(rest, 2, true))
+  ({ values: aten_W(r.v), indices: aten_W(r.i) })
+}
+
+-- aten: aten::median(Tensor self) -> Tensor
+export median := (t, ...rest) ~> do {
+  r :: aten_median(t, rest)
+  if aten_is_num(r) || r.s != null { aten_ow(r) } else { r }
+}
+
+-- aten: aten::mode(Tensor self, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices)
+export mode := (t, ...rest) ~> aten_mode(t, aten_req(rest, 0), aten_opt(rest, 1, false))
+
+-- aten: aten::kthvalue(Tensor self, SymInt k, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices)
+export kthvalue := (t, ...rest) ~> aten_kthvalue(t, aten_req(rest, 0), aten_opt(rest, 1, 0), aten_opt(rest, 2, false))
+
+-- aten: aten::quantile(Tensor self, Tensor q, int dim=None, bool keepdim=False, *, str interpolation="linear") -> Tensor
+export quantile := (t, ...rest) ~> aten_ow(aten_quantile(t, rest))
+
+-- aten: aten::searchsorted.Tensor(Tensor sorted_sequence, Tensor self, *, bool out_int32=False, bool right=False, str side=None, Tensor sorter=None) -> Tensor
+export searchsorted := (t, ...rest) ~> aten_ow(aten_searchsorted(t, aten_req(rest, 0), aten_opt(rest, 1, false)))
+
+-- aten: aten::msort(Tensor self) -> Tensor
+export msort := (t, ...rest) ~> aten_ow(aten_msort(t))
+

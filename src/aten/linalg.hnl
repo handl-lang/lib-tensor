@@ -1,0 +1,123 @@
+from "../internal/aten.hnl" import {
+  aten_T, aten_W, aten_ow, aten_owl, aten_is_num, aten_at, aten_opt,
+  aten_opt_num, aten_req, aten_arg_w, aten_wrap_dim, aten_mem,
+  aten_dim_spec, aten_bump, aten_vmap, aten_map1, aten_bin_ss, aten_map3,
+  aten_where, aten_clamp_side, aten_reduce, aten_arg_reduce, aten_cum,
+  aten_softmax, aten_sort_dim, aten_select_dim_index, aten_map_pos,
+  aten_permute, aten_flip, aten_repeat, aten_expand, aten_triu,
+  aten_slice_dim, aten_index_select, aten_unbind, aten_chunk, aten_split,
+  aten_stack, aten_nonzero, aten_mm2, aten_bmm, aten_mv, aten_dot_data,
+  aten_ger, aten_addr, aten_addmv, aten_gather, aten_index_add,
+  aten_take, aten_index_fill, aten_squeeze, aten_flatten, aten_slice,
+  aten_diag, aten_diagonal, aten_trace, aten_t, aten_swapaxes,
+  aten_moveaxis, aten_rot90, aten_reduce_dims_list, aten_p_norm,
+  aten_norm, aten_renorm, aten_normalize, aten_cross, aten_reshape,
+  aten_tensordot, aten_kron, aten_p_dist_rows, aten_cdist, aten_pdist,
+  aten_dist, aten_erf, aten_logsumexp, aten_var_std, aten_layer_norm,
+  aten_rms_norm, aten_glu, aten_avg_pool2d, aten_constant_pad_nd,
+  aten_pixel_space_depth, aten_bincount, aten_corrcoef, aten_to,
+  aten_topk, aten_searchsorted, aten_meshgrid, aten_count_nonzero,
+  null_dims, aten_allclose, aten_is_nonzero, aten_msort, aten_nansum,
+  aten_nanmean, aten_full, aten_full_like, aten_zeros_like,
+  aten_ones_like, aten_arange, aten_linspace, aten_eye, aten_sort_select,
+  aten_id, aten_dot_wrap, aten_expand_as, aten_reshape_view, aten_mean,
+  aten_ow, aten_owl,
+  aten_maxmin, aten_allany, aten_prelu, aten_where_op, aten_clamp_op,
+  aten_floor, aten_ceil, aten_trunc, aten_fract, aten_round, aten_abs,
+  aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
+  aten_sign, aten_f64_max,
+  aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
+  aten_mode, aten_kthvalue, aten_quantile
+}
+from "../internal/helpers.hnl" import {
+  die, len, product, replicate, set, slice, strides, unravel, dot,
+  take, drop, rem_euclid
+}
+from "../codec.hnl" import { wire, as_wire, wire_shape, wire_data }
+from "../elementwise.hnl" import elementwise
+from "math" import * as math
+--- aten-port-gen: linalg family ---
+-- aten: aten::prelu(Tensor self, Tensor weight) -> Tensor
+export prelu := (t, ...rest) ~> aten_ow(aten_prelu(t, aten_req(rest, 0)))
+
+-- aten: aten::where.self(Tensor condition, Tensor self, Tensor other) -> Tensor
+export where_ := (t, ...rest) ~> aten_ow(aten_where(t, aten_req(rest, 0), aten_req(rest, 1)))
+
+-- aten: aten::clamp(Tensor self, Scalar min=None, Scalar max=None) -> Tensor
+export clamp := (t, ...rest) ~> aten_ow(aten_clamp_op(t, rest))
+
+-- aten: aten::clamp_min(Tensor self, Scalar min) -> Tensor
+export clamp_min := (t, ...rest) ~> aten_ow(aten_clamp_minmax(t, rest, true))
+
+-- aten: aten::clamp_max(Tensor self, Scalar max) -> Tensor
+export clamp_max := (t, ...rest) ~> aten_ow(aten_clamp_minmax(t, rest, false))
+
+-- aten: aten::lerp.Tensor(Tensor self, Tensor end, Tensor weight) -> Tensor
+export lerp := (t, ...rest) ~> aten_ow(aten_lerp(t, aten_req(rest, 0), aten_req(rest, 1)))
+
+-- aten: aten::mm(Tensor self, Tensor mat2) -> Tensor
+export mm := (t, ...rest) ~> aten_ow(aten_mm2(t, aten_req(rest, 0)))
+
+-- aten: aten::bmm(Tensor self, Tensor mat2) -> Tensor
+export bmm := (t, ...rest) ~> aten_ow(aten_bmm(t, aten_req(rest, 0)))
+
+-- aten: aten::addmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+export addmm := (t, ...rest) ~> aten_ow(aten_addmm(t, aten_req(rest, 0), aten_req(rest, 1), aten_opt(rest, 2, 1), aten_opt(rest, 3, 1), false))
+
+-- aten: aten::addbmm(Tensor self, Tensor batch1, Tensor batch2, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+export addbmm := (t, ...rest) ~> aten_ow(aten_addmm(t, aten_req(rest, 0), aten_req(rest, 1), aten_opt(rest, 2, 1), aten_opt(rest, 3, 1), true))
+
+-- aten: aten::baddbmm(Tensor self, Tensor batch1, Tensor batch2, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+export baddbmm := (t, ...rest) ~> aten_ow(aten_addmm(t, aten_req(rest, 0), aten_req(rest, 1), aten_opt(rest, 2, 1), aten_opt(rest, 3, 1), true))
+
+-- aten: aten::mv(Tensor self, Tensor vec) -> Tensor
+export mv := (t, ...rest) ~> aten_ow(aten_mv(t, aten_req(rest, 0)))
+
+-- aten: aten::dot(Tensor self, Tensor tensor) -> Tensor
+export dot := (t, ...rest) ~> aten_ow(aten_dot_wrap(t, aten_req(rest, 0)))
+
+-- aten: aten::vdot(Tensor self, Tensor other) -> Tensor
+export vdot := (t, ...rest) ~> aten_ow(aten_dot_wrap(t, aten_req(rest, 0)))
+
+-- aten: aten::ger(Tensor self, Tensor vec2) -> Tensor
+export ger := (t, ...rest) ~> aten_ow(aten_ger(t, aten_req(rest, 0)))
+
+-- aten: aten::outer(Tensor self, Tensor vec2) -> Tensor
+export outer := (t, ...rest) ~> aten_ow(aten_ger(t, aten_req(rest, 0)))
+
+-- aten: aten::addr(Tensor self, Tensor vec1, Tensor vec2, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+export addr := (t, ...rest) ~> aten_ow(aten_addr(t, aten_req(rest, 0), aten_req(rest, 1), aten_opt(rest, 2, 1), aten_opt(rest, 3, 1)))
+
+-- aten: aten::addmv(Tensor self, Tensor mat, Tensor vec, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+export addmv := (t, ...rest) ~> aten_ow(aten_addmv(t, aten_req(rest, 0), aten_req(rest, 1), aten_opt(rest, 2, 1), aten_opt(rest, 3, 1)))
+
+-- aten: aten::tensordot(Tensor self, Tensor other, int[] dims_self, int[] dims_other) -> Tensor
+export tensordot := (t, ...rest) ~> aten_ow(aten_tensordot(t, aten_req(rest, 0), aten_req(rest, 1)))
+
+-- aten: aten::kron(Tensor self, Tensor other) -> Tensor
+export kron := (t, ...rest) ~> aten_ow(aten_kron(t, aten_req(rest, 0)))
+
+-- aten: aten::cross(Tensor self, Tensor other, int dim=None) -> Tensor
+export cross := (t, ...rest) ~> aten_ow(aten_cross(t, aten_req(rest, 0), aten_opt(rest, 1, -1)))
+
+-- aten: aten::norm.Scalar(Tensor self, Scalar p=2) -> Tensor
+export norm := (t, ...rest) ~> aten_ow(aten_norm(t, aten_req(rest, 0)))
+
+-- aten: aten::renorm(Tensor self, Scalar p, int dim, Scalar maxnorm) -> Tensor
+export renorm := (t, ...rest) ~> aten_ow(aten_renorm(t, aten_req(rest, 0), aten_req(rest, 1), aten_req(rest, 2)))
+
+-- aten: aten::linalg_vector_norm(Tensor self, Scalar ord=2, int[1] dim=None, bool keepdim=False, *, ScalarType dtype=None) -> Tensor
+export normalize := (t, ...rest) ~> aten_ow(aten_normalize(t, aten_opt(rest, 0, null), aten_opt(rest, 1, null), aten_opt(rest, 2, false)))
+
+-- aten: aten::inner(Tensor self, Tensor other) -> Tensor
+export inner := (t, ...rest) ~> aten_ow(aten_dot_wrap(t, aten_req(rest, 0)))
+
+-- aten: aten::dist(Tensor self, Tensor other, Scalar p=2) -> Tensor
+export dist := (t, ...rest) ~> aten_ow(aten_dist(t, aten_req(rest, 0), aten_opt(rest, 1, 2)))
+
+-- aten: aten::cdist(Tensor x1, Tensor x2, float p=2., int compute_mode=None) -> Tensor
+export cdist := (t, ...rest) ~> aten_ow(aten_cdist(t, aten_req(rest, 0), aten_opt(rest, 1, 2)))
+
+-- aten: aten::pdist(Tensor self, float p=2.) -> Tensor
+export pdist := (t, ...rest) ~> aten_ow(aten_pdist(t, aten_opt(rest, 0, 2)))
+

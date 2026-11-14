@@ -1,0 +1,3486 @@
+--- internal/aten.hnl -- shared drivers for the aten-port-gen surface:
+--- the .hnl mirror of host-tensor/src/ops/aten_kernels.rs.
+---
+--- GENERATED-CONSUMER CONTRACT: the src/aten/*.hnl files emitted by
+--- tools/aten_port_gen.py call these drivers; nothing here is part of
+--- the public ltensor surface. Same conventions as the rest of the
+--- package:
+---
+---   * tensors are the wire record {"__tensor__": {shape, data,
+---     dtype}} (or an opaque host Tensor, normalized by as_wire);
+---   * helpers take/return PLAIN {s: shape, d: data} records so they
+---     can ride while state (tagged __tensor__ records would
+---     promote to opaque Tensors at the state boundary -- harmless
+---     but pointless churn); op bodies wire() the result at the
+---     tail, exactly like shape_ops.hnl does;
+---   * comparisons/predicates yield 1.0/0.0 f64 -- there is no bool
+---     dtype on the wire;
+---   * die rejects where the Rust impls raise EvalError -- accept/
+---     reject parity, not message parity.
+---
+--- Deliberate divergences from the Rust kernels (all documented in
+--- docs/reports/lib_tensor_port_gen.md):
+---
+---   * math.* scalar leaves are call_host atoms -- the tensor
+---     STRUCTURE (broadcast odometers, slab loops, reductions) stays
+---     transparent .hnl, but transcendental scalars (sin, exp,
+---     pow, ...) are host calls, the same role f64::* plays in the
+---     Rust kernels. The hand-ported 31 ops remain host-call-free.
+---   * NaN/~inf cannot cross the serde_json wire (math.nan()/
+---     math.infinity() evaluate to null; x/0 is an engine error,
+---     not inf). Every NaN/inf branch below is therefore dead on
+---     wire inputs -- written anyway for parity -- and reductions that
+---     seed with ~inf seed with ~f64::MAX instead (identical on every
+---     non-empty input; an empty reduction yields -/+MAX where the host
+---     yields -/+inf).
+---   * math.mod is rem_euclid, NOT fmod -- % (the C-style
+---     remainder, sign of the dividend) is used wherever the Rust
+---     code uses %.
+
+from "./helpers.hnl" import { die, len, take, drop, slice, set, replicate,
+  product, sum, flat, strides, unravel, rem_euclid, dot }
+from "../codec.hnl" import { wire, as_wire }
+from "../elementwise.hnl" import { broadcast_shape, broadcast_strides,
+  bc_data, elementwise }
+from "math" import * as math
+
+-- ---------------------------------------------------------------------------
+-- Argument coercion (the generated decode preludes call these)
+-- ---------------------------------------------------------------------------
+
+--- aten_T(s, d) -- the plain internal tensor record.
+export aten_T := (s, d) ~> ({ s: s, d: d })
+
+--- aten_W(x) -- {s, d} internal record -> wire tensor (for
+-- composing drivers that return plain records).
+export aten_W := (x) ~> match x {
+  {s: s, d: d}: wire(s, d),
+  _: x
+}
+
+--- aten_is_num(x) -- a JSON/handl number (int or float).
+export aten_is_num := (x) ~> if x == null { false } else {
+  match x {
+    [h, ...t]: false,
+    {"__tensor__": t}: false,
+    {s: s, d: d}: false,
+    _: true
+  }
+}
+
+--- aten_at(xs, i) -- indexed access (indices are always
+--- non-negative here; callers wrap dims with aten_wrap_dim).
+--- aten_floor / aten_ceil / aten_trunc / aten_fract / aten_round --
+--- exact f64 scalar ops in pure .hnl (no math.* host leaf needed):
+--- % is fmod (sign of the dividend), so floor/ceil reduce to one
+--- conditional correction. round is half-away-from-zero like
+--- f64::round.
+export aten_floor := (x) ~> do {
+  r :: x % 1
+  f :: x - r
+  if r != 0 && x < 0 { f - 1 } else { f }
+}
+export aten_ceil := (x) ~> 0 - aten_floor(0 - x)
+export aten_trunc := (x) ~> x - (x % 1)
+export aten_fract := (x) ~> x % 1
+export aten_round := (x) ~> if x >= 0 {
+  aten_floor(x + 0.5)
+} else {
+  0 - aten_floor(0 - x + 0.5)
+}
+
+--- aten_abs / aten_fmax / aten_fmin -- f64::abs and the NaN-skipping
+--- f64::max/f64::min (a NaN operand yields the other operand).
+export aten_abs := (x) ~> if x < 0 { 0 - x } else { x }
+export aten_fmax := (x, y) ~> if x != x {
+  y
+} else {
+  if y != y { x } else { if x > y { x } else { y } }
+}
+export aten_fmin := (x, y) ~> if x != x {
+  y
+} else {
+  if y != y { x } else { if x < y { x } else { y } }
+}
+
+--- aten_is_nan / aten_is_finite / aten_is_infinite / aten_sign --
+--- NaN is the only value with x != x; +-inf is the only finite-test
+--- failure with x == x (x - x is NaN). aten_sign mirrors
+--- f64::signum (NaN and +-0 pass through).
+export aten_is_nan := (x) ~> x != x
+export aten_is_finite := (x) ~> x == x && x - x == 0
+export aten_is_infinite := (x) ~> x == x && (x - x) != (x - x)
+export aten_sign := (x) ~> if x > 0 { 1 } else {
+  if x < 0 { 0 - 1 } else { x }
+}
+
+--- aten_f64_max -- f64::MAX as a 309-digit integer literal: this
+--- dialect has no exponent notation, and the literal rounds to the
+--- same f64. Used as the +-identity for max/min reductions (the Rust
+--- kernels use +-inf; every wire value is finite, so MAX is an
+--- equivalent identity).
+export aten_f64_max := 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368
+
+export aten_at := (xs, i) ~> xs[i]
+
+--- aten_opt(rest, i, d) -- positional-optional decode: absent or
+--- null selects the ATen default d (the opt_* helpers in
+--- aten_kernels.rs).
+export aten_opt := (rest, i, d) ~> if len(rest) > i && rest[i] != null {
+  rest[i]
+} else { d }
+
+--- aten_opt_num(rest, i, d) -- aten_opt restricted to numbers.
+export aten_opt_num := (rest, i, d) ~> if len(rest) > i && rest[i] != null {
+  if aten_is_num(rest[i]) { rest[i] } else {
+    die("aten: expected a number argument")
+  }
+} else { d }
+
+--- aten_req(rest, i) -- a required trailing arg.
+export aten_req := (rest, i) ~> if len(rest) > i {
+  rest[i]
+} else { die("aten: missing required argument") }
+
+--- aten_arg_w(x) -- a Scalar | Tensor argument normalized to a
+--- tensor: numbers become the rank-0 wire tensor (the hosts
+--- Tensor { shape: vec![], data: vec![s] } scalar broadcast).
+export aten_arg_w := (x) ~> if aten_is_num(x) {
+  wire([], [x])
+} else { as_wire(x) }
+
+--- aten_wrap_dim(d, r) -- wrap_dim: negative dims wrap by
+--- rem_euclid(rank); rank-0 is an error.
+export aten_wrap_dim := (d, r) ~> if r == 0 {
+  die("aten: cannot index an axis of a rank-0 tensor")
+} else { rem_euclid(d, r) }
+
+--- aten_mem(x, xs) -- list membership (dedupe checks).
+export aten_mem := (x, xs) ~> match xs {
+  []: false,
+  [h, ...t]: if h == x { true } else { aten_mem(x, t) }
+}
+
+--- aten_dim_spec(x, r) -- normalize a dim argument to a list of
+--- wrapped dims: null -> every axis, a bare int -> [d], a list ->
+--- wrapped + dedupe-checked (the hosts norm_reduce_dims minus the
+--- empty-list identity, which callers check before calling).
+export aten_dim_spec := (x, r) ~> do {
+  spec :: if x == null {
+    while { i: 0, acc: [] } {
+      (i, acc) ~> if i < r {
+        { state: { i: i + 1, acc: [...acc, i] } }
+      } else { { out: acc } }
+    }
+  } else {
+    if aten_is_num(x) { [x] } else { x }
+  }
+  while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(spec) {
+      do {
+        d :: aten_wrap_dim(spec[i], r)
+        ok :: if aten_mem(d, acc) {
+          die("aten: duplicate dim")
+        } else { true }
+        { state: { i: i + 1, acc: [...acc, d] } }
+      }
+    } else { { out: acc } }
+  }
+}
+
+--- aten_bump(idx, ext) -- one odometer step over idx bounded by
+--- ext: the LAST coordinate advances fastest (row-major flat
+--- enumeration). Returns the next index tuple.
+export aten_bump := (idx, ext) ~> do {
+  n :: len(idx)
+  if n == 0 {
+    []
+  } else {
+    last_i :: idx[n - 1]
+    last_e :: ext[n - 1]
+    if last_i + 1 < last_e {
+      [...take(idx, n - 1), last_i + 1]
+    } else {
+      [...aten_bump(take(idx, n - 1), take(ext, n - 1)), 0]
+    }
+  }
+}
+
+-- ---------------------------------------------------------------------------
+-- Map drivers (unary / binary-scalar-or-tensor / ternary)
+-- ---------------------------------------------------------------------------
+
+--- aten_vmap(xs, f) -- f over every element of xs (while-fold,
+--- same accumulation order as the hand-written ops).
+export aten_vmap := (xs, f) ~> while { i: 0, acc: [] } {
+  (i, acc) ~> if i < len(xs) {
+    { state: { i: i + 1, acc: [...acc, f(xs[i])] } }
+  } else { { out: acc } }
+}
+
+--- aten_map1(t, f) -- elementwise f over one tensor (the hosts
+--- map_unary): shape preserved, f applied per flat element.
+export aten_map1 := (t, f) ~> do {
+  w :: as_wire(t)
+  wa :: aten_T(w.__tensor__.shape, aten_vmap(w.__tensor__.data, f))
+  wa
+}
+
+--- aten_bin_ss(a, rhs, f) -- binary op whose rhs is Scalar | Tensor
+--- (the hosts binary_scalar_rhs): numbers broadcast as rank-0.
+export aten_bin_ss := (a, rhs, f) ~> elementwise(a, aten_arg_w(rhs), f)
+
+--- aten_map3(c, x, y, f) -- ternary broadcast select: f(c_i, x_i,
+--- y_i) over the broadcast of three operands, each of which may be
+--- a number, a tensor, or (for c) a tensor only.
+export aten_map3 := (c, x, y, f) ~> do {
+  wc :: as_wire(c)
+  wx :: aten_arg_w(x)
+  wy :: aten_arg_w(y)
+  csh :: wc.__tensor__.shape
+  xsh :: wx.__tensor__.shape
+  ysh :: wy.__tensor__.shape
+  osh :: broadcast_shape(broadcast_shape(csh, xsh), ysh)
+  n :: product(osh)
+  cd :: bc_data(wc.__tensor__.data, csh, osh)
+  xd :: bc_data(wx.__tensor__.data, xsh, osh)
+  yd :: bc_data(wy.__tensor__.data, ysh, osh)
+  ds :: aten_vmap(while { i: 0, acc: [] } {
+    (i, acc) ~> if i < n {
+      { state: { i: i + 1, acc: [...acc, i] } }
+    } else { { out: acc } }
+  }, (i) ~> f(cd[i], xd[i], yd[i]))
+  aten_T(osh, ds)
+}
+
+--- aten_where(cond, x, y) -- where(condition, self, other):
+--- nonzero condition selects self (host k_where, scalar
+--- operands included).
+export aten_where := (c, x, y) ~> aten_map3(c, x, y, (cv, xv, yv) ~> if cv != 0 { xv } else { yv })
+
+--- aten_clamp_side(t, bound, is_lo) -- one side of clamp
+--- (x.max(bound) / x.min(bound)), bound Scalar | Tensor.
+export aten_clamp_side := (t, b, is_lo) ~> aten_bin_ss(t, b,
+  (x, y) ~> if is_lo { aten_fmax(x, y) } else { aten_fmin(x, y) })
+
+-- ---------------------------------------------------------------------------
+-- Reductions -- the hosts reduce_fold / reduce_arg / cum_along /
+-- softmax_dim
+-- ---------------------------------------------------------------------------
+
+--- aten_reduce(t, dims, keepdim, init, f) -- fold f(acc, x) over
+--- the axes in dims (already normalized by aten_dim_spec; []
+--- means the empty-tuple identity -> t unchanged). keepdim
+--- retains size-1 axes. Mirrors reduce_fold exactly: kept axes
+--- odometer x reduced-axes inner loop, output appended in
+--- row-major order.
+export aten_reduce := (t, dims, keepdim, init, f) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  if len(dims) == 0 {
+    -- empty dim list -> identity (torchs empty-tuple rule). Callers
+    -- pass aten_dim_spec output -- a list -- so [] unambiguously
+    -- means "reduce nothing" (reduce-all was already expanded).
+    aten_T(shp, w.__tensor__.data)
+  } else {
+    do {
+      red :: dims
+      in_st :: strides(shp)
+      kept :: while { i: 0, acc: [] } {
+        (i, acc) ~> if i < r {
+          do { d :: if aten_mem(i, red) { null } else { i }
+            { state: { i: i + 1, acc: if d == null { acc } else { [...acc, d] } } }
+          }
+        } else { { out: acc } }
+      }
+      kext :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(kept) {
+        { state: { i: i + 1, acc: [...acc, shp[kept[i]]] } } } else { { out: acc } } }
+      rext :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(red) {
+        { state: { i: i + 1, acc: [...acc, shp[red[i]]] } } } else { { out: acc } } }
+      kst :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(kept) {
+        { state: { i: i + 1, acc: [...acc, in_st[kept[i]]] } } } else { { out: acc } } }
+      rst :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(red) {
+        { state: { i: i + 1, acc: [...acc, in_st[red[i]]] } } } else { { out: acc } } }
+      redn :: product(rext)
+      osh :: if keepdim {
+        while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+          do { d :: if aten_mem(i, red) { 1 } else { shp[i] }
+            { state: { i: i + 1, acc: [...acc, d] } } }
+        } else { { out: acc } } }
+      } else {
+        while { i: 0, acc: [] } { (i, acc) ~> if i < len(kept) {
+          { state: { i: i + 1, acc: [...acc, shp[kept[i]]] } } } else { { out: acc } } }
+      }
+      nout :: product(osh)
+      dst :: w.__tensor__.data
+      res :: while { o: 0, kidx: replicate(0, len(kept)), out: [] } {
+        (o, kidx, out) ~> if o < nout {
+          do {
+            inner :: while { q: 0, ridx: replicate(0, len(red)), acc: init } {
+              (q, ridx, acc) ~> if q < redn {
+                do {
+                  off :: dot(kidx, kst) + dot(ridx, rst)
+                  acc2 :: f(acc, dst[off])
+                  { state: { q: q + 1, ridx: aten_bump(ridx, rext), acc: acc2 } }
+                }
+              } else { { out: acc } }
+            }
+            { state: { o: o + 1, kidx: aten_bump(kidx, kext), out: [...out, inner] } }
+          }
+        } else { { out: out } }
+      }
+      aten_T(osh, res)
+    }
+  }
+}
+
+--- aten_arg_reduce(t, dim, keepdim, want_max) -- argmax/argmin:
+--- dim is null (all axes -> rank-0 or all-ones index) or a single
+--- dim. First strict improvement wins, matching the hosts >/<
+--- scan (stable: earliest index kept on ties).
+export aten_arg_reduce := (t, dim, keepdim, want_max) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  dst :: w.__tensor__.data
+  if dim == null {
+    -- flatten argmax/argmin
+    res :: while { i: 1, best: 0 } {
+      (i, best) ~> if i < len(dst) {
+        do {
+          x :: dst[i]
+          b :: dst[best]
+          better :: if want_max { x > b } else { x < b }
+          { state: { i: i + 1, best: if better { i } else { best } } }
+        }
+      } else { { out: best } }
+    }
+    osh :: if keepdim { replicate(1, r) } else { [] }
+    aten_T(osh, [res * 1.0])
+  } else {
+    do {
+      d :: aten_wrap_dim(dim, r)
+      width :: shp[d]
+      in_st :: strides(shp)
+      kept :: while { i: 0, acc: [] } {
+        (i, acc) ~> if i < r {
+          do { dd :: if i == d { null } else { i }
+            { state: { i: i + 1, acc: if dd == null { acc } else { [...acc, dd] } } }
+          }
+        } else { { out: acc } }
+      }
+      kext :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(kept) {
+        { state: { i: i + 1, acc: [...acc, shp[kept[i]]] } } } else { { out: acc } } }
+      kst :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(kept) {
+        { state: { i: i + 1, acc: [...acc, in_st[kept[i]]] } } } else { { out: acc } } }
+      keptn :: product(kext)
+      res :: while { o: 0, kidx: replicate(0, len(kept)), out: [] } {
+        (o, kidx, out) ~> if o < keptn {
+          do {
+            base :: dot(kidx, kst)
+            scan :: while { j: 1, best: 0 } {
+              (j, best) ~> if j < width {
+                do {
+                  x :: dst[base + j * in_st[d]]
+                  b :: dst[base + best * in_st[d]]
+                  better :: if want_max { x > b } else { x < b }
+                  { state: { j: j + 1, best: if better { j } else { best } } }
+                }
+              } else { { out: best } }
+            }
+            { state: { o: o + 1, kidx: aten_bump(kidx, kext), out: [...out, scan * 1.0] } }
+          }
+        } else { { out: out } }
+      }
+      osh :: if keepdim {
+        while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+          do { dd :: if i == d { 1 } else { shp[i] }
+            { state: { i: i + 1, acc: [...acc, dd] } } }
+        } else { { out: acc } } }
+      } else {
+        kext
+      }
+      aten_T(osh, res)
+    }
+  }
+}
+
+--- aten_cum(t, dim, prod) -- cumsum/cumprod along dim:
+--- (outer, i, tail) blocks, running value carried in data.
+--- aten_cum(t, dim, prod) -- cumsum/cumprod along dim:
+--- one pass per (outer-block, tail-position) line of width
+--- strided elements, running value carried in prev (the hosts
+--- cum_along). Output positions coincide with input positions, so
+--- results are scattered back through set.
+export aten_cum := (t, dim, prod) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  d :: aten_wrap_dim(dim, len(shp))
+  width :: shp[d]
+  tail :: product(drop(shp, d + 1))
+  outer :: product(take(shp, d))
+  src :: w.__tensor__.data
+  numel :: len(src)
+  lines :: outer * tail
+  initv :: if prod { 1 } else { 0 }
+  res :: while { l: 0, acc: replicate(0, numel) } {
+    (l, acc) ~> if l < lines {
+      do {
+        oo :: aten_floor(l / tail)
+        jj :: l - oo * tail
+        base :: oo * width * tail + jj
+        row :: while { i: 0, prev: initv, acc2: [] } {
+          (i, prev, acc2) ~> if i < width {
+            do {
+              x :: src[base + i * tail]
+              v :: if prod { prev * x } else { prev + x }
+              { state: { i: i + 1, prev: v, acc2: [...acc2, v] } }
+            }
+          } else { { out: acc2 } }
+        }
+        placed :: while { i: 0, acc3: acc } {
+          (i, acc3) ~> if i < width {
+            { state: { i: i + 1, acc3: set(acc3, base + i * tail, row[i]) } }
+          } else { { out: acc3 } }
+        }
+        { state: { l: l + 1, acc: placed } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(shp, res)
+}
+
+--- aten_softmax(t, dim, log) -- softmax/log_softmax along
+--- dim: max-subtract, lse = mx + ln(~ exp(x-mx)), then
+--- exp(x-lse) or x-lse. Mirrors softmax_dim: one pass per
+--- (outer-block, tail-position) line.
+export aten_softmax := (t, dim, log) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  d :: aten_wrap_dim(dim, len(shp))
+  width :: shp[d]
+  tail :: product(drop(shp, d + 1))
+  outer :: product(take(shp, d))
+  src :: w.__tensor__.data
+  numel :: len(src)
+  lines :: outer * tail
+  res :: while { l: 0, acc: replicate(0, numel) } {
+    (l, acc) ~> if l < lines {
+      if width == 0 {
+        -- an empty reduced axis contributes no elements (the hosts
+        -- fold yields an empty row); skip without touching src.
+        { state: { l: l + 1, acc: acc } }
+      } else {
+      do {
+        oo :: aten_floor(l / tail)
+        jj :: l - oo * tail
+        base :: oo * width * tail + jj
+        -- max over the strided slice
+        mx :: while { i: 1, m: src[base] } {
+          (i, m) ~> if i < width {
+            do { x :: src[base + i * tail]
+              { state: { i: i + 1, m: aten_fmax(m, x) } } }
+          } else { { out: m } }
+        }
+        -- ~ exp(x - mx)
+        sm :: while { i: 0, s: 0 } {
+          (i, s) ~> if i < width {
+            { state: { i: i + 1, s: s + math.exp(src[base + i * tail] - mx) } }
+          } else { { out: s } }
+        }
+        lse :: mx + math.log(sm)
+        row :: while { i: 0, acc2: [] } {
+          (i, acc2) ~> if i < width {
+            do { x :: src[base + i * tail]
+              v :: if log { x - lse } else { math.exp(x - lse) }
+              { state: { i: i + 1, acc2: [...acc2, v] } } }
+          } else { { out: acc2 } }
+        }
+        -- scatter the row back strided
+        placed :: while { i: 0, acc3: acc } {
+          (i, acc3) ~> if i < width {
+            { state: { i: i + 1,
+              acc3: set(acc3, base + i * tail, row[i]) } }
+          } else { { out: acc3 } }
+        }
+        { state: { l: l + 1, acc: placed } }
+      }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(shp, res)
+}
+
+-- ---------------------------------------------------------------------------
+-- Sorting / selection / nonzero -- sort_dim, select_dim_index,
+-- nonzero_impl
+-- ---------------------------------------------------------------------------
+
+--- aten_sort_dim(t, dim, descending) -- stable insertion sort along
+--- dim per line (the hosts sort_dim): returns
+--- { s: out_shape, d: [v0, i0, v1, i1, ...] } interleaved pairs in
+--- the reduced axiss slot -- NO, returns two flat lists aligned to
+--- the OUTPUT tensor positions: values at even conceptual slots is
+--- wrong; the host emits values and indices as SEPARATE tensors
+--- of the input shape. We return { v: {s,d}, i: {s,d} }.
+export aten_sort_dim := (t, dim, descending) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  d :: aten_wrap_dim(dim, r)
+  width :: shp[d]
+  tail :: product(drop(shp, d + 1))
+  outer :: product(take(shp, d))
+  src :: w.__tensor__.data
+  numel :: len(src)
+  lines :: outer * tail
+  acc0 :: { v: replicate(0, numel), i: replicate(0, numel) }
+  res :: while { l: 0, acc: acc0 } {
+    (l, acc) ~> if l < lines {
+      if width <= 1 {
+        { state: { l: l + 1, acc: acc } }
+      } else {
+        do {
+          oo :: aten_floor(l / tail)
+          jj :: l - oo * tail
+          base :: oo * width * tail + jj
+          -- gather the lines (value, index) pairs
+          pairs :: while { i: 0, acc2: [] } {
+            (i, acc2) ~> if i < width {
+              do {
+                at :: base + i * tail
+                { state: { i: i + 1, acc2: [...acc2, ({ p: src[at], ix: i })] } }
+              }
+            } else { { out: acc2 } }
+          }
+          -- insertion sort, stable, descending flips the comparison
+          sorted :: while { i: 1, buf: pairs } {
+            (i, buf) ~> if i < width {
+              do {
+                cur :: buf[i]
+                -- bubble cur left while it should precede buf[j-1]
+                ins :: while { j: i, a: buf } {
+                  (j, a) ~> if j > 0 {
+                    do {
+                      pv :: a[j - 1]
+                      pv2 :: a[j]
+                      precedes :: if descending {
+                        pv2.p > pv.p || (pv2.p == pv.p && pv2.ix < pv.ix)
+                      } else {
+                        pv2.p < pv.p || (pv2.p == pv.p && pv2.ix < pv.ix)
+                      }
+                      if precedes {
+                        { state: { j: j - 1, a: set(set(a, j - 1, pv2), j, pv) } }
+                      } else { { out: a } }
+                    }
+                  } else { { out: a } }
+                }
+                { state: { i: i + 1, buf: ins } }
+              }
+            } else { { out: buf } }
+          }
+          -- scatter sorted (value,index) back strided
+          placed :: while { i: 0, av: acc.v, ai: acc.i } {
+            (i, av, ai) ~> if i < width {
+              do {
+                at :: base + i * tail
+                pr :: sorted[i]
+                { state: { i: i + 1,
+                  av: set(av, at, pr.p),
+                  ai: set(ai, at, pr.ix * 1.0) } }
+              }
+            } else { { out: { v: av, i: ai } } }
+          }
+          { state: { l: l + 1, acc: placed } }
+        }
+      }
+    } else { { out: acc } }
+  }
+  ({ v: aten_T(shp, res.v), i: aten_T(shp, res.i) })
+}
+
+--- aten_select_dim_index(t, dim, idx) -- select/index_selects
+--- per-index slice gather: drops dim, gathers slab idx -- wait,
+--- this is select (single index -> dim removed). For a LIST of
+--- indices use aten_index_select.
+export aten_select_dim_index := (t, dim, idx) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  d :: aten_wrap_dim(dim, r)
+  i :: rem_euclid(idx, shp[d])
+  st :: strides(shp)
+  inner :: shp[d] * st[d] == 1 && d == r - 1
+  -- general path: enumerate kept index tuples
+  kept :: while { q: 0, acc: [] } {
+    (q, acc) ~> if q < r {
+      do { dd :: if q == d { null } else { q }
+        { state: { q: q + 1, acc: if dd == null { acc } else { [...acc, dd] } } } }
+    } else { { out: acc } }
+  }
+  kext :: while { q: 0, acc: [] } { (q, acc) ~> if q < len(kept) {
+    { state: { q: q + 1, acc: [...acc, shp[kept[q]]] } } } else { { out: acc } } }
+  kst :: while { q: 0, acc: [] } { (q, acc) ~> if q < len(kept) {
+    { state: { q: q + 1, acc: [...acc, st[kept[q]]] } } } else { { out: acc } } }
+  nout :: product(kext)
+  osh :: kext
+  dst :: w.__tensor__.data
+  out :: while { o: 0, kidx: replicate(0, len(kept)), acc: [] } {
+    (o, kidx, acc) ~> if o < nout {
+      do {
+        -- walk dims 0..r-1: d takes i, kept dims consume kidx
+        full :: while { q: 0, kp: 0, acc2: [] } {
+          (q, kp, acc2) ~> if q < r {
+            do {
+              v :: if q == d { i } else { kidx[kp] }
+              kp2 :: if q == d { kp } else { kp + 1 }
+              { state: { q: q + 1, kp: kp2, acc2: [...acc2, v] } }
+            }
+          } else { { out: acc2 } }
+        }
+        off :: dot(full, st)
+        { state: { o: o + 1, kidx: aten_bump(kidx, kext), acc: [...acc, dst[off]] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(osh, out)
+}
+
+-- ---------------------------------------------------------------------------
+-- Generic position-mapped transforms -- aten_map_pos plus the shape
+-- ops that are pure index remapping (flip / permute / repeat / expand /
+-- triu / tril / pad-family all collapse onto it).
+-- ---------------------------------------------------------------------------
+
+--- aten_map_pos(shp, f) -- enumerate every row-major index tuple of
+--- shp and collect f(ix); returns the {s, d} record. f sees
+--- ONLY the index tuple -- source access goes through captured
+--- strides/data.
+export aten_map_pos := (shp, f) ~> do {
+  n :: product(shp)
+  res :: while { p: 0, acc: [] } {
+    (p, acc) ~> if p < n {
+      do { ix :: unravel(shp, p)
+        { state: { p: p + 1, acc: [...acc, f(ix)] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(shp, res)
+}
+
+--- aten_permute(t, order) -- permute/transpose/t/mT/swapaxes/
+--- moveaxis/rot90 all reduce to a dimension permutation. order
+--- lists the SOURCE dim for each OUTPUT position~ Convention (torch):
+--- out.shape[i] = in.shape[order[i]], and out[ix] = in[ix~order].
+export aten_permute := (t, order) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  o :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < r {
+      do { d :: rem_euclid(order[i], r)
+        ok :: if aten_mem(d, acc) {
+          die("aten.permute: duplicate dim")
+        } else { true }
+        { state: { i: i + 1, acc: [...acc, d] } }
+      }
+    } else { { out: acc } }
+  }
+  -- aten_permute returns dims in OUTPUT order; validate the count.
+  check :: if len(o) == r { true } else {
+    die("aten.permute: order length != rank")
+  }
+  osh :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    { state: { i: i + 1, acc: [...acc, shp[o[i]]] } } } else { { out: acc } } }
+  st :: strides(shp)
+  -- inverse permutation: src coord at dim o[i] is ix[i]
+  inv :: while { i: 0, acc: replicate(0, r) } {
+    (i, acc) ~> if i < r {
+      { state: { i: i + 1, acc: set(acc, o[i], i) } }
+    } else { { out: acc } }
+  }
+  src :: w.__tensor__.data
+  aten_map_pos(osh, (ix) ~> do {
+    six :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      { state: { i: i + 1, acc: [...acc, ix[inv[i]]] } } } else { { out: acc } }
+    }
+    src[dot(six, st)]
+  })
+}
+
+--- aten_flip(t, dims) -- reverse the listed axes (dims a list or
+--- null = all).
+export aten_flip := (t, dims) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  raw :: if dims == null {
+    while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      { state: { i: i + 1, acc: [...acc, i] } } } else { { out: acc } } }
+  } else { dims }
+  spec :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(raw) {
+    { state: { i: i + 1, acc: [...acc, rem_euclid(raw[i], r)] } }
+  } else { { out: acc } } }
+  st :: strides(shp)
+  src :: w.__tensor__.data
+  aten_map_pos(shp, (ix) ~> do {
+    six :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      do { dd :: aten_mem(i, spec)
+        v :: if dd { shp[i] - 1 - ix[i] } else { ix[i] }
+        { state: { i: i + 1, acc: [...acc, v] } }
+      }
+    } else { { out: acc } } }
+    src[dot(six, st)]
+  })
+}
+
+--- aten_repeat(t, reps) -- tile t reps[d] times along each axis
+--- (out[ix] = in[ix mod in_shape]).
+export aten_repeat := (t, reps) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  check :: if len(reps) == r { true } else {
+    die("aten.repeat: repeats length != rank")
+  }
+  osh :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    { state: { i: i + 1, acc: [...acc, shp[i] * reps[i]] } }
+  } else { { out: acc } } }
+  st :: strides(shp)
+  src :: w.__tensor__.data
+  aten_map_pos(osh, (ix) ~> do {
+    six :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      { state: { i: i + 1, acc: [...acc, ix[i] % shp[i]] } }
+    } else { { out: acc } } }
+    src[dot(six, st)]
+  })
+}
+
+--- aten_expand(t, shape) -- broadcast t to shape (each source
+--- dim must be 1 or equal; result shares values, materialized).
+export aten_expand := (t, shape) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  os :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(shape) {
+    { state: { i: i + 1, acc: [...acc, shape[i]] } }
+  } else { { out: acc } } }
+  ro :: len(os)
+  check :: if ro >= r { true } else {
+    die("aten.expand: cannot shrink rank")
+  }
+  -- align: source dims map to the LAST r output dims
+  off :: ro - r
+  ok :: while { i: 0, acc: true } { (i, acc) ~> if i < r {
+    do { sd :: shp[i]
+      od :: os[off + i]
+      good :: sd == od || sd == 1
+      { state: { i: i + 1, acc: acc && good } }
+    }
+  } else { { out: acc } } }
+  check2 :: if ok { true } else {
+    die("aten.expand: shape not broadcastable")
+  }
+  st :: strides(shp)
+  src :: w.__tensor__.data
+  aten_map_pos(os, (ix) ~> do {
+    six :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      do { sd :: shp[i]
+        c :: if sd == 1 { 0 } else { ix[off + i] }
+        { state: { i: i + 1, acc: [...acc, c] } }
+      }
+    } else { { out: acc } } }
+    src[dot(six, st)]
+  })
+}
+
+--- aten_triu(t, diagonal, upper) -- mask the last two axes:
+--- upper keeps col - row >= -diagonal, lower keeps
+--- col - row <= diagonal (torchs triu/tril diagonal offset).
+export aten_triu := (t, diagonal, upper) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  check :: if r == 2 { true } else {
+    die("aten.triu: expected rank-2 tensor")
+  }
+  st :: strides(shp)
+  src :: w.__tensor__.data
+  aten_map_pos(shp, (ix) ~> do {
+    diff :: ix[r - 1] - ix[r - 2]
+    keep :: if upper { diff >= diagonal } else { diff <= diagonal }
+    if keep { src[dot(ix, st)] } else { 0 }
+  })
+}
+
+-- ---------------------------------------------------------------------------
+-- Slab gather / slice -- index_select, narrow, unbind, chunk,
+-- split share these.
+-- ---------------------------------------------------------------------------
+
+--- aten_slice_dim(t, d, start, len_) -- contiguous slab along d
+--- (the hosts slice_dim fast path generalized): output shape has
+--- len_ at d, data gathered outerxinner.
+export aten_slice_dim := (t, d0, start, len_) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  d :: aten_wrap_dim(d0, r)
+  width :: len_
+  inner :: product(drop(shp, d + 1))
+  outer :: product(take(shp, d))
+  src :: w.__tensor__.data
+  osh :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    do { v :: if i == d { width } else { shp[i] }
+      { state: { i: i + 1, acc: [...acc, v] } }
+  } } else { { out: acc } } }
+  res :: while { o: 0, out: [] } {
+    (o, out) ~> if o < outer {
+      do {
+        blk :: while { i: 0, acc: [] } {
+          (i, acc) ~> if i < width {
+            do {
+              seg :: while { q: 0, acc2: [] } {
+                (q, acc2) ~> if q < inner {
+                  { state: { q: q + 1,
+                    acc2: [...acc2, src[(o * shp[d] + start + i) * inner + q]] } }
+                } else { { out: acc2 } }
+              }
+              { state: { i: i + 1, acc: [...acc, ...seg] } }
+            }
+          } else { { out: acc } }
+        }
+        { state: { o: o + 1, out: [...out, ...blk] } }
+      }
+    } else { { out: out } }
+  }
+  aten_T(osh, res)
+}
+
+--- aten_index_select(t, dim, idxs) -- gather slabs idxs[k] along
+--- dim (idx values wrapped). Returns {s, d}.
+export aten_index_select := (t, dim, idxs) ~> do {
+  w :: as_wire(t)
+  wi :: as_wire(idxs)
+  idata :: wi.__tensor__.data
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  d :: aten_wrap_dim(dim, r)
+  width :: shp[d]
+  inner :: product(drop(shp, d + 1))
+  outer :: product(take(shp, d))
+  src :: w.__tensor__.data
+  nk :: len(idata)
+  osh :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    do { v :: if i == d { nk } else { shp[i] }
+      { state: { i: i + 1, acc: [...acc, v] } }
+  } } else { { out: acc } } }
+  -- wrapped index list
+  widx :: while { i: 0, acc: [] } { (i, acc) ~> if i < nk {
+    { state: { i: i + 1, acc: [...acc, rem_euclid(idata[i], width)] } }
+  } else { { out: acc } } }
+  res :: while { o: 0, out: [] } {
+    (o, out) ~> if o < outer {
+      do {
+        blk :: while { k: 0, acc: [] } {
+          (k, acc) ~> if k < nk {
+            do {
+              seg :: while { q: 0, acc2: [] } {
+                (q, acc2) ~> if q < inner {
+                  { state: { q: q + 1,
+                    acc2: [...acc2, src[(o * width + widx[k]) * inner + q]] } }
+                } else { { out: acc2 } }
+              }
+              { state: { k: k + 1, acc: [...acc, ...seg] } }
+            }
+          } else { { out: acc } }
+        }
+        { state: { o: o + 1, out: [...out, ...blk] } }
+      }
+    } else { { out: out } }
+  }
+  aten_T(osh, res)
+}
+
+--- aten_unbind(t, dim) -- list of width tensors (dim removed),
+--- each a aten_slice_dim slab. Returns a plain LIST of {s,d}.
+export aten_unbind := (t, dim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  d :: aten_wrap_dim(dim, len(shp))
+  width :: shp[d]
+  while { i: 0, acc: [] } {
+    (i, acc) ~> if i < width {
+      do {
+        piece :: aten_slice_dim(w, d, i, 1)
+        -- host unbind REMOVES the dim (unlike select-style keep).
+        ns :: while { q: 0, acc2: [] } { (q, acc2) ~> if q < len(piece.s) {
+          do { dd :: if q == d { null } else { q }
+            { state: { q: q + 1,
+              acc2: if dd == null { acc2 } else { [...acc2, piece.s[q]] } } }
+          }
+        } else { { out: acc2 } } }
+        { state: { i: i + 1, acc: [...acc, aten_T(ns, piece.d)] } }
+      }
+    } else { { out: acc } }
+  }
+}
+
+export aten_chunk := (t, chunks, dim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  d :: aten_wrap_dim(dim, len(shp))
+  width :: shp[d]
+  check :: if chunks > 0 { true } else {
+    die("aten.chunk: chunks must be positive")
+  }
+  -- host k_chunk: sizes differ by at most 1, larger chunks first
+  -- (base + (i < rem)), then the split machinery.
+  base :: aten_floor(width / chunks)
+  remn :: width - base * chunks
+  while { i: 0, off: 0, acc: [] } {
+    (i, off, acc) ~> if i < chunks {
+      do {
+        ln :: base + (if i < remn { 1 } else { 0 })
+        piece :: aten_slice_dim(w, d, off, ln)
+        { state: { i: i + 1, off: off + ln, acc: [...acc, piece] } }
+      }
+    } else { { out: acc } }
+  }
+}
+
+export aten_split := (t, sizes0, dim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  d :: aten_wrap_dim(dim, len(shp))
+  width :: shp[d]
+  -- torch split(split_size:int) = chunks OF that size; a list is
+  -- explicit per-chunk sizes. Normalize the int form to a list.
+  sizes :: if aten_is_num(sizes0) {
+    do {
+      ss :: sizes0
+      nch :: aten_ceil((width * 1.0) / ss)
+      base :: aten_floor(width / nch)
+      remn :: width - base * nch
+      while { i: 0, acc: [] } { (i, acc) ~> if i < nch {
+        { state: { i: i + 1, acc: [...acc, base + (if i < remn { 1 } else { 0 })] } }
+      } else { { out: acc } } }
+    }
+  } else { sizes0 }
+  total :: sum(sizes)
+  check :: if total == width { true } else {
+    die("aten.split: sizes do not sum to dim width")
+  }
+  while { i: 0, off: 0, acc: [] } {
+    (i, off, acc) ~> if i < len(sizes) {
+      do {
+        ln :: sizes[i]
+        -- aten_slice_dim handles ln == 0 naturally (empty data,
+        -- 0-extent shape at d).
+        piece :: aten_slice_dim(w, d, off, ln)
+        { state: { i: i + 1, off: off + ln, acc: [...acc, piece] } }
+      }
+    } else { { out: acc } }
+  }
+}
+
+--- aten_stack(tensors, dim) -- stack: unsqueeze each input at
+--- dim then concat (the hosts stack = expand+unsqueeze+cat).
+export aten_stack := (tensors, dim) ~> do {
+  n :: len(tensors)
+  check :: if n > 0 { true } else { die("aten.stack: empty list") }
+  w0 :: as_wire(tensors[0])
+  shp0 :: w0.__tensor__.shape
+  r :: len(shp0)
+  d :: if dim == null { 0 } else { rem_euclid(dim, r + 1) }
+  -- all inputs must share shape
+  same :: while { i: 1, acc: true } { (i, acc) ~> if i < n {
+    do { wi :: as_wire(tensors[i])
+      { state: { i: i + 1, acc: acc && (wi.__tensor__.shape == shp0) } }
+    }
+  } else { { out: acc } } }
+  check2 :: if same { true } else {
+    die("aten.stack: input shapes differ")
+  }
+  -- unsqueeze each input at d (data unchanged -- the new axis has
+  -- extent 1), then concat along d.
+  unsq :: while { i: 0, acc: [] } { (i, acc) ~> if i < n {
+    do {
+      wi :: as_wire(tensors[i])
+      si :: wi.__tensor__.shape
+      di :: wi.__tensor__.data
+      ns :: while { q: 0, acc2: [] } { (q, acc2) ~> if q < r + 1 {
+        do { v :: if q == d { 1 } else { si[if q < d { q } else { q - 1 }] }
+          { state: { q: q + 1, acc2: [...acc2, v] } }
+        }
+      } else { { out: acc2 } } }
+      { state: { i: i + 1, acc: [...acc, aten_T(ns, di)] } }
+    }
+  } else { { out: acc } } }
+  ns0 :: unsq[0].s
+  inner2 :: product(drop(ns0, d + 1))
+  outer :: product(take(ns0, d))
+  res :: while { o: 0, out: [] } {
+    (o, out) ~> if o < outer {
+      do {
+        seg :: while { t: 0, acc2: [] } {
+          (t, acc2) ~> if t < n {
+            do {
+              -- input ts (d-extent-1) slab is inner2 contiguous
+              -- elements at flat offset o * inner2.
+              piece :: while { q: 0, acc3: [] } {
+                (q, acc3) ~> if q < inner2 {
+                  { state: { q: q + 1,
+                    acc3: [...acc3, unsq[t].d[o * inner2 + q]] } }
+                } else { { out: acc3 } }
+              }
+              { state: { t: t + 1, acc2: [...acc2, ...piece] } }
+            }
+          } else { { out: acc2 } }
+        }
+        { state: { o: o + 1, out: [...out, ...seg] } }
+      }
+    } else { { out: out } }
+  }
+  osh2 :: while { i: 0, acc: [] } { (i, acc) ~> if i < r + 1 {
+    do { v :: if i == d { n } else { ns0[i] }
+      { state: { i: i + 1, acc: [...acc, v] } }
+  } } else { { out: acc } } }
+  aten_T(osh2, res)
+}
+
+-- ---------------------------------------------------------------------------
+-- Nonzero / linalg / distance family
+-- ---------------------------------------------------------------------------
+
+--- aten_nonzero(t) -- indices of nonzero elements as an
+--- [nnz, rank] tensor (row-major order of appearance).
+export aten_nonzero := (t) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  src :: w.__tensor__.data
+  n :: len(src)
+  -- first pass: count
+  cnt :: while { p: 0, c: 0 } {
+    (p, c) ~> if p < n {
+      { state: { p: p + 1, c: if src[p] != 0 { c + 1 } else { c } } }
+    } else { { out: c } }
+  }
+  -- second pass: emit index tuples
+  res :: while { p: 0, k: 0, acc: [] } {
+    (p, k, acc) ~> if p < n {
+      do {
+        if src[p] != 0 {
+          do {
+            ix :: unravel(shp, p)
+            row :: while { i: 0, acc2: [] } { (i, acc2) ~> if i < r {
+              { state: { i: i + 1, acc2: [...acc2, ix[i] * 1.0] } }
+            } else { { out: acc2 } } }
+            { state: { p: p + 1, k: k + 1, acc: [...acc, ...row] } }
+          }
+        } else {
+          { state: { p: p + 1, k: k, acc: acc } }
+        }
+      }
+    } else { { out: acc } }
+  }
+  aten_T([cnt, r], res)
+}
+
+--- aten_mm2(a, b) -- strict rank-2 (mxk)x(kxn); the hosts mm2
+-- (skips a == 0 products -- unobservable on finite wire data).
+export aten_mm2 := (a, b) ~> do {
+  wa :: as_wire(a)
+  wb :: as_wire(b)
+  ash :: wa.__tensor__.shape
+  bsh :: wb.__tensor__.shape
+  check :: if len(ash) == 2 && len(bsh) == 2 { true } else {
+    die("aten.mm: expected rank-2 operands")
+  }
+  m :: ash[0]
+  k :: ash[1]
+  k2 :: bsh[0]
+  n :: bsh[1]
+  check2 :: if k == k2 { true } else {
+    die("aten.mm: inner dimension mismatch")
+  }
+  da :: wa.__tensor__.data
+  db :: wb.__tensor__.data
+  ds :: while { p: 0, acc: [] } {
+    (p, acc) ~> if p < m * n {
+      do {
+        i :: aten_floor(p / n)
+        j :: p - i * n
+        s :: while { l: 0, acc2: 0 } {
+          (l, acc2) ~> if l < k {
+            { state: { l: l + 1, acc2: acc2 + da[i * k + l] * db[l * n + j] } }
+          } else { { out: acc2 } }
+        }
+        { state: { p: p + 1, acc: [...acc, s] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T([m, n], ds)
+}
+
+--- aten_bmm(a, b) -- strict rank-3 batched matmul, equal batch dims
+-- (no broadcast -- thats matmul).
+export aten_bmm := (a, b) ~> do {
+  wa :: as_wire(a)
+  wb :: as_wire(b)
+  ash :: wa.__tensor__.shape
+  bsh :: wb.__tensor__.shape
+  check :: if len(ash) == 3 && len(bsh) == 3 { true } else {
+    die("aten.bmm: expected rank-3 operands")
+  }
+  bs :: ash[0]
+  check2 :: if bs == bsh[0] { true } else {
+    die("aten.bmm: batch dims differ")
+  }
+  m :: ash[1]
+  k :: ash[2]
+  k2 :: bsh[1]
+  n :: bsh[2]
+  check3 :: if k == k2 { true } else {
+    die("aten.bmm: inner dimension mismatch")
+  }
+  da :: wa.__tensor__.data
+  db :: wb.__tensor__.data
+  slab :: m * n
+  ds :: while { p: 0, acc: [] } {
+    (p, acc) ~> if p < bs * m * n {
+      do {
+        bi :: aten_floor(p / slab)
+        rem :: p - bi * slab
+        i :: aten_floor(rem / n)
+        j :: rem - i * n
+        ao :: bi * m * k
+        bo :: bi * k * n
+        s :: while { l: 0, acc2: 0 } {
+          (l, acc2) ~> if l < k {
+            { state: { l: l + 1,
+              acc2: acc2 + da[ao + i * k + l] * db[bo + l * n + j] } }
+          } else { { out: acc2 } }
+        }
+        { state: { p: p + 1, acc: [...acc, s] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T([bs, m, n], ds)
+}
+
+--- aten_mv(t, v) -- matrix-vector (mxk)x(k) -> (m).
+export aten_mv := (t, v) ~> do {
+  wt :: as_wire(t)
+  wv :: as_wire(v)
+  tsh :: wt.__tensor__.shape
+  vsh :: wv.__tensor__.shape
+  check :: if len(tsh) == 2 && len(vsh) == 1 && tsh[1] == vsh[0] { true } else {
+    die("aten.mv: shape mismatch")
+  }
+  m :: tsh[0]
+  k :: tsh[1]
+  da :: wt.__tensor__.data
+  dv :: wv.__tensor__.data
+  ds :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < m {
+      do {
+        s :: while { l: 0, acc2: 0 } {
+          (l, acc2) ~> if l < k {
+            { state: { l: l + 1, acc2: acc2 + da[i * k + l] * dv[l] } }
+          } else { { out: acc2 } }
+        }
+        { state: { i: i + 1, acc: [...acc, s] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T([m], ds)
+}
+
+--- aten_dot_data(da, db, n) -- ~ a[i]xb[i]; lengths must match.
+export aten_dot_data := (da, db) ~> do {
+  check :: if len(da) == len(db) { true } else {
+    die("aten.dot: length mismatch")
+  }
+  while { i: 0, acc: 0 } {
+    (i, acc) ~> if i < len(da) {
+      { state: { i: i + 1, acc: acc + da[i] * db[i] } }
+    } else { { out: acc } }
+  }
+}
+
+--- aten_ger(u, v) -- outer product (m)x(n) -> (mxn).
+export aten_ger := (u, v) ~> do {
+  wu :: as_wire(u)
+  wv :: as_wire(v)
+  ush :: wu.__tensor__.shape
+  vsh :: wv.__tensor__.shape
+  check :: if len(ush) == 1 && len(vsh) == 1 { true } else {
+    die("aten.ger: expected vectors")
+  }
+  m :: ush[0]
+  n :: vsh[0]
+  du :: wu.__tensor__.data
+  dv :: wv.__tensor__.data
+  ds :: while { p: 0, acc: [] } {
+    (p, acc) ~> if p < m * n {
+      do { i :: aten_floor(p / n)
+        j :: p - i * n
+        { state: { p: p + 1, acc: [...acc, du[i] * dv[j]] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T([m, n], ds)
+}
+
+--- aten_addr(t, beta, alpha, vec) -- betaxt + alphaxvec broadcast
+-- over columns~ Host addr: vec broadcasts over the LAST dim~
+-- torch.addr: t + alpha * vec where vec shape (n,) broadcasts
+-- across rows -- i.e. standard trailing broadcast.
+export aten_addr := (t, v1, v2, beta, alpha) ~> do {
+  -- beta*self + alpha*(v1 ~ v2) (host k_addr).
+  outer :: wire(aten_ger(v1, v2).s, aten_ger(v1, v2).d)
+  bt :: elementwise(t, aten_arg_w(beta), (x, y) ~> x * y)
+  oa :: elementwise(outer, aten_arg_w(alpha), (x, y) ~> x * y)
+  elementwise(bt, oa, (x, y) ~> x + y)
+}
+
+export aten_addmv := (bias, t, vec, beta, alpha) ~> do {
+  mv :: wire(aten_mv(t, vec).s, aten_mv(t, vec).d)
+  bm :: elementwise(aten_arg_w(bias), aten_arg_w(beta), (x, y) ~> x * y)
+  am :: elementwise(mv, aten_arg_w(alpha), (x, y) ~> x * y)
+  elementwise(bm, am, (x, y) ~> x + y)
+}
+
+-- ---------------------------------------------------------------------------
+-- Index ops: gather / index_add / take / index_fill
+-- ---------------------------------------------------------------------------
+
+--- aten_gather(t, dim, idx) -- out[ix] = t[ix[.., idx[ix], ..]];
+-- idx must have the same shape as t.
+export aten_gather := (t, dim, idx) ~> do {
+  w :: as_wire(t)
+  wi :: as_wire(idx)
+  shp :: w.__tensor__.shape
+  ish :: wi.__tensor__.shape
+  check :: if ish == shp { true } else {
+    die("aten.gather: index shape != self shape")
+  }
+  r :: len(shp)
+  d :: aten_wrap_dim(dim, r)
+  width :: shp[d]
+  st :: strides(shp)
+  src :: w.__tensor__.data
+  idata :: wi.__tensor__.data
+  res :: while { p: 0, acc: [] } {
+    (p, acc) ~> if p < len(src) {
+      do {
+        ix :: unravel(shp, p)
+        g :: idata[p]
+        gi :: g
+        checkg :: if gi >= 0 && gi < width { true } else {
+          die("aten.gather: index out of range")
+        }
+        six :: set(ix, d, gi)
+        { state: { p: p + 1, acc: [...acc, src[dot(six, st)]] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(shp, res)
+}
+
+--- aten_index_add(t, dim, idxs, src, alpha) -- clone t, then for
+-- each k: out[idx[k]] += alpha * src[k] slab-wise along dim.
+export aten_index_add := (t, dim, idxs, src, alpha) ~> do {
+  w :: as_wire(t)
+  ws :: as_wire(src)
+  shp :: w.__tensor__.shape
+  ssp :: ws.__tensor__.shape
+  r :: len(shp)
+  d :: aten_wrap_dim(dim, r)
+  width :: shp[d]
+  nk :: len(idxs)
+  inner :: product(drop(shp, d + 1))
+  outer :: product(take(shp, d))
+  -- src must match t except extent nk at d
+  check :: if len(ssp) == r { true } else {
+    die("aten.index_add: rank mismatch")
+  }
+  check2 :: while { i: 0, acc: true } { (i, acc) ~> if i < r {
+    do { good :: if i == d { ssp[i] == nk } else { ssp[i] == shp[i] }
+      { state: { i: i + 1, acc: acc && good } }
+    }
+  } else { { out: acc } } }
+  check3 :: if check2 { true } else {
+    die("aten.index_add: source shape incompatible")
+  }
+  -- bounds-check indices (host rejects, doesnt wrap)
+  ok :: while { i: 0, acc: true } { (i, acc) ~> if i < nk {
+    do { g :: idxs[i]
+      good :: g >= 0 && g < width
+      { state: { i: i + 1, acc: acc && good } }
+    }
+  } else { { out: acc } } }
+  check4 :: if ok { true } else {
+    die("aten.index_add: index out of range")
+  }
+  dst0 :: w.__tensor__.data
+  sdata :: ws.__tensor__.data
+  -- accumulate: out = t.data clone; add alpha*src slabs
+  res :: while { o: 0, acc: dst0 } {
+    (o, acc) ~> if o < outer {
+      do {
+        acc2 :: while { k: 0, a2: acc } {
+          (k, a2) ~> if k < nk {
+            do {
+              old_i :: idxs[k]
+              dst0i :: (o * width + old_i) * inner
+              src0i :: (o * nk + k) * inner
+              seg :: while { q: 0, a3: a2 } {
+                (q, a3) ~> if q < inner {
+                  { state: { q: q + 1,
+                    a3: set(a3, dst0i + q,
+                           a3[dst0i + q] + alpha * sdata[src0i + q]) } }
+                } else { { out: a3 } }
+              }
+              { state: { k: k + 1, a2: seg } }
+            }
+          } else { { out: a2 } }
+        }
+        { state: { o: o + 1, acc: acc2 } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(shp, res)
+}
+
+--- aten_take(t, idx) -- flat gather; idx is a TENSOR (any shape),
+-- negative indices wrap once.
+export aten_take := (t, idx) ~> do {
+  w :: as_wire(t)
+  wi :: as_wire(idx)
+  n :: len(w.__tensor__.data)
+  idata :: wi.__tensor__.data
+  ish :: wi.__tensor__.shape
+  res :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(idata) {
+      do {
+        raw :: idata[i]
+        j :: if raw < 0 { raw + n } else { raw }
+        check :: if j >= 0 && j < n { true } else {
+          die("aten.take: index out of range")
+        }
+        { state: { i: i + 1, acc: [...acc, w.__tensor__.data[j]] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(ish, res)
+}
+
+--- aten_index_fill(t, dim, idxs, value) -- set slabs idxs along
+-- dim to value.
+export aten_index_fill := (t, dim, idxs, value) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  d :: aten_wrap_dim(dim, r)
+  width :: shp[d]
+  nk :: len(idxs)
+  inner :: product(drop(shp, d + 1))
+  outer :: product(take(shp, d))
+  ok :: while { i: 0, acc: true } { (i, acc) ~> if i < nk {
+    do { g :: idxs[i]
+      good :: g >= 0 && g < width
+      { state: { i: i + 1, acc: acc && good } }
+    }
+  } else { { out: acc } } }
+  check :: if ok { true } else {
+    die("aten.index_fill: index out of range")
+  }
+  dst0 :: w.__tensor__.data
+  res :: while { o: 0, acc: dst0 } {
+    (o, acc) ~> if o < outer {
+      do {
+        acc2 :: while { k: 0, a2: acc } {
+          (k, a2) ~> if k < nk {
+            do {
+              base :: (o * width + idxs[k]) * inner
+              seg :: while { q: 0, a3: a2 } {
+                (q, a3) ~> if q < inner {
+                  { state: { q: q + 1, a3: set(a3, base + q, value) } }
+                } else { { out: a3 } }
+              }
+              { state: { k: k + 1, a2: seg } }
+            }
+          } else { { out: a2 } }
+        }
+        { state: { o: o + 1, acc: acc2 } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(shp, res)
+}
+
+-- ---------------------------------------------------------------------------
+-- Shape transforms: squeeze / flatten / slice / diag family / t / mT /
+-- swapaxes / moveaxis / rot90 / identity / pixel ops
+-- ---------------------------------------------------------------------------
+
+--- aten_squeeze(t, dims) -- drop size-1 axes; dims null -> all.
+export aten_squeeze := (t, dims) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  if dims == null {
+    osh :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      do { v :: if shp[i] == 1 { null } else { shp[i] }
+        { state: { i: i + 1,
+          acc: if v == null { acc } else { [...acc, v] } } }
+      }
+    } else { { out: acc } } }
+    aten_T(osh, w.__tensor__.data)
+  } else {
+    spec :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(dims) {
+      { state: { i: i + 1, acc: [...acc, rem_euclid(dims[i], r)] } }
+    } else { { out: acc } } }
+    ok :: while { i: 0, acc: true } { (i, acc) ~> if i < len(spec) {
+      do { good :: shp[spec[i]] == 1
+        { state: { i: i + 1, acc: acc && good } }
+      }
+    } else { { out: acc } } }
+    check :: if ok { true } else {
+      die("aten.squeeze: dim size != 1")
+    }
+    osh :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      do { v :: if aten_mem(i, spec) { null } else { shp[i] }
+        { state: { i: i + 1,
+          acc: if v == null { acc } else { [...acc, v] } } }
+      }
+    } else { { out: acc } } }
+    aten_T(osh, w.__tensor__.data)
+  }
+}
+
+--- aten_flatten(t, start, end) -- merge axes start..=end
+-- (both rem_euclid-wrapped; start > end is an error).
+export aten_flatten := (t, start, end) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  s :: rem_euclid(start, r)
+  e :: rem_euclid(end, r)
+  check :: if s <= e { true } else {
+    die("aten.flatten: start_dim > end_dim")
+  }
+  merged :: product(slice(shp, s, e - s + 1))
+  osh :: [...take(shp, s), merged, ...drop(shp, e + 1)]
+  aten_T(osh, w.__tensor__.data)
+}
+
+--- aten_slice(t, dim, start, end, step) -- slice with optional
+-- bounds (null = open) and step (host k_slice_opt).
+export aten_slice := (t, dim, start, end, step) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  check :: if step != 0 { true } else {
+    die("aten.slice: step must be nonzero")
+  }
+  d :: aten_wrap_dim(dim, r)
+  width :: shp[d]
+  wf :: width * 1.0
+  -- normalize bounds per host rules
+  sv0 :: if start == null {
+    if step > 0 { 0 } else { width - 1 }
+  } else { start }
+  sv :: if step > 0 { rem_euclid(sv0, wf) } else { sv0 }
+  ev :: if end == null {
+    if step > 0 { width } else { 0 - width - 1 }
+  } else { end }
+  -- collect indices along d
+  idxs :: if step > 0 {
+    while { i: sv, acc: [] } {
+      (i, acc) ~> if i < aten_fmin(ev, wf) {
+        { state: { i: i + step, acc: [...acc, i] } }
+      } else { { out: acc } }
+    }
+  } else {
+    while { i: sv, acc: [] } {
+      (i, acc) ~> if i > aten_fmax(ev, 0 - wf - 1) {
+        { state: { i: i + step, acc: [...acc, rem_euclid(i, wf)] } }
+      } else { { out: acc } }
+    }
+  }
+  nk :: len(idxs)
+  inner :: product(drop(shp, d + 1))
+  outer :: product(take(shp, d))
+  src :: w.__tensor__.data
+  osh :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    do { v :: if i == d { nk } else { shp[i] }
+      { state: { i: i + 1, acc: [...acc, v] } }
+  } } else { { out: acc } } }
+  res :: while { o: 0, out: [] } {
+    (o, out) ~> if o < outer {
+      do {
+        blk :: while { k: 0, acc: [] } {
+          (k, acc) ~> if k < nk {
+            do {
+              ii :: idxs[k]
+              seg :: while { q: 0, acc2: [] } {
+                (q, acc2) ~> if q < inner {
+                  { state: { q: q + 1,
+                    acc2: [...acc2, src[(o * width + ii) * inner + q]] } }
+                } else { { out: acc2 } }
+              }
+              { state: { k: k + 1, acc: [...acc, ...seg] } }
+            }
+          } else { { out: acc } }
+        }
+        { state: { o: o + 1, out: [...out, ...blk] } }
+      }
+    } else { { out: out } }
+  }
+  aten_T(osh, res)
+}
+
+--- aten_diag(t, diagonal) -- rank-1 embed -> square matrix; rank-2
+-- extract -> 1-D (host k_diag).
+export aten_diag := (t, diagonal) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  src :: w.__tensor__.data
+  if r == 1 {
+    n :: shp[0]
+    size :: n + aten_abs(diagonal)
+    -- out[i,j] = v at (i-diagmax, j+diagmin)... place each v
+    res :: while { p: 0, acc: replicate(0, size * size) } {
+      (p, acc) ~> if p < n {
+        do {
+          row :: p + aten_fmax(diagonal, 0)
+          col :: p + aten_fmax(0 - diagonal, 0)
+          ok :: row >= 0 && col >= 0 && row < size && col < size
+          acc2 :: if ok { set(acc, row * size + col, src[p]) } else { acc }
+          { state: { p: p + 1, acc: acc2 } }
+        }
+      } else { { out: acc } }
+    }
+    aten_T([size, size], res)
+  } else {
+    check :: if r == 2 { true } else {
+      die("aten.diag: expected rank-1 or rank-2")
+    }
+    m :: shp[0]
+    n :: shp[1]
+    sr :: aten_fmax(diagonal, 0)
+    sc :: aten_fmax(0 - diagonal, 0)
+    len_ :: aten_fmin(m - sr, n - sc)
+    if len_ <= 0 {
+      aten_T([0], [])
+    } else {
+      res :: while { i: 0, acc: [] } {
+        (i, acc) ~> if i < len_ {
+          { state: { i: i + 1,
+            acc: [...acc, src[(sr + i) * n + sc + i]] } }
+        } else { { out: acc } }
+      }
+      aten_T([len_], res)
+    }
+  }
+}
+
+--- aten_diagonal(t, offset, dim1, dim2) -- host k_diagonal:
+-- permute (others..., d1, d2), extract offset diagonal to the end.
+export aten_diagonal := (t, offset, dim1, dim2) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  check :: if r >= 2 { true } else {
+    die("aten.diagonal: expected rank >= 2")
+  }
+  d1 :: aten_wrap_dim(dim1, r)
+  d2 :: aten_wrap_dim(dim2, r)
+  check2 :: if d1 != d2 { true } else {
+    die("aten.diagonal: dim1 and dim2 must differ")
+  }
+  others :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    do { dd :: if i == d1 || i == d2 { null } else { i }
+      { state: { i: i + 1,
+        acc: if dd == null { acc } else { [...acc, dd] } } }
+    }
+  } else { { out: acc } } }
+  perm :: [...others, d1, d2]
+  tp :: aten_permute(w, perm)
+  tsh :: tp.s
+  tshp :: tp.d
+  ir :: r - 2
+  m :: tsh[ir]
+  n :: tsh[ir + 1]
+  outer :: product(take(tsh, ir))
+  sr :: aten_fmax(offset, 0)
+  sc :: aten_fmax(0 - offset, 0)
+  len_ :: aten_fmax(aten_fmin(m - sr, n - sc), 0)
+  tst :: strides(tsh)
+  res :: while { o: 0, out: [] } {
+    (o, out) ~> if o < outer {
+      do {
+        -- coords of o over the leading ir axes (row-major unravel)
+        pc :: unravel(take(tsh, ir), o)
+        base :: dot(pc, take(tst, ir))
+        rs :: tst[ir]
+        cs :: tst[ir + 1]
+        row :: while { i: 0, acc2: [] } {
+          (i, acc2) ~> if i < len_ {
+            { state: { i: i + 1,
+              acc2: [...acc2, tshp[base + (sr + i) * rs + (sc + i) * cs]] } }
+          } else { { out: acc2 } }
+        }
+        { state: { o: o + 1, out: [...out, ...row] } }
+      }
+    } else { { out: out } }
+  }
+  osh :: [...take(tsh, ir), len_]
+  aten_T(osh, res)
+}
+
+--- aten_trace(t) -- rank-2 main-diagonal sum -> rank-0.
+export aten_trace := (t) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  check :: if len(shp) == 2 { true } else {
+    die("aten.trace: expected rank-2")
+  }
+  m :: shp[0]
+  n :: shp[1]
+  len_ :: aten_fmin(m, n)
+  src :: w.__tensor__.data
+  s :: while { i: 0, acc: 0 } {
+    (i, acc) ~> if i < len_ {
+      { state: { i: i + 1, acc: acc + src[i * n + i] } }
+    } else { { out: acc } }
+  }
+  aten_T([], [s])
+}
+
+--- aten_t(t) / aten_swapaxes(t, d0, d1) -- permute variants.
+export aten_t := (t) ~> do {
+  w :: as_wire(t)
+  r :: len(w.__tensor__.shape)
+  check :: if r >= 2 { true } else {
+    die("aten.t: expected rank >= 2")
+  }
+  order :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    do { v :: if i == r - 2 { r - 1 } else { if i == r - 1 { r - 2 } else { i } }
+      { state: { i: i + 1, acc: [...acc, v] } }
+  } } else { { out: acc } } }
+  aten_permute(w, order)
+}
+
+export aten_swapaxes := (t, d0, d1) ~> do {
+  w :: as_wire(t)
+  r :: len(w.__tensor__.shape)
+  a :: rem_euclid(d0, r)
+  b :: rem_euclid(d1, r)
+  order :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    do { v :: if i == a { b } else { if i == b { a } else { i } }
+      { state: { i: i + 1, acc: [...acc, v] } }
+  } } else { { out: acc } } }
+  aten_permute(w, order)
+}
+
+--- aten_moveaxis(t, src, dst) -- host k_moveaxis (sorted-pair
+-- approximation documented there).
+export aten_moveaxis := (t, src0, dst0) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  -- ATen allows int or int[] for source/destination.
+  src :: if aten_is_num(src0) { [src0] } else { src0 }
+  dst :: if aten_is_num(dst0) { [dst0] } else { dst0 }
+  check :: if len(src) == len(dst) { true } else {
+    die("aten.moveaxis: source/destination length mismatch")
+  }
+  ns :: len(src)
+  space :: r - ns
+  sn :: while { i: 0, acc: [] } { (i, acc) ~> if i < ns {
+    { state: { i: i + 1, acc: [...acc, rem_euclid(src[i], r)] } }
+  } else { { out: acc } } }
+  dn :: while { i: 0, acc: [] } { (i, acc) ~> if i < ns {
+    do {
+      dd :: dst[i]
+      x :: if dd < 0 { dd + space } else { dd }
+      ok :: x >= 0 && x < space
+      checkd :: if ok { true } else {
+        die("aten.moveaxis: destination out of range")
+      }
+      { state: { i: i + 1, acc: [...acc, x] } }
+    }
+  } else { { out: acc } } }
+  -- sort both (insertion -- ns is tiny)
+  ssort :: while { i: 1, a: sn } {
+    (i, a) ~> if i < ns {
+      do {
+        cur :: a[i]
+        ins :: while { j: i, b: a } {
+          (j, b) ~> if j > 0 {
+            do { pv :: b[j - 1]
+              pv2 :: b[j]
+              if pv2 < pv {
+                { state: { j: j - 1, b: set(set(b, j - 1, pv2), j, pv) } }
+              } else { { out: b } }
+            }
+          } else { { out: b } }
+        }
+        { state: { i: i + 1, a: ins } }
+      }
+    } else { { out: a } }
+  }
+  dsort :: while { i: 1, a: dn } {
+    (i, a) ~> if i < ns {
+      do {
+        cur :: a[i]
+        ins :: while { j: i, b: a } {
+          (j, b) ~> if j > 0 {
+            do { pv :: b[j - 1]
+              pv2 :: b[j]
+              if pv2 < pv {
+                { state: { j: j - 1, b: set(set(b, j - 1, pv2), j, pv) } }
+              } else { { out: b } }
+            }
+          } else { { out: b } }
+        }
+        { state: { i: i + 1, a: ins } }
+      }
+    } else { { out: a } }
+  }
+  -- order = dims minus moved (in order), then insert each moved
+  -- dim at its destination.
+  order0 :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    do { dd :: if aten_mem(i, ssort) { null } else { i }
+      { state: { i: i + 1,
+        acc: if dd == null { acc } else { [...acc, i] } } }
+    }
+  } else { { out: acc } } }
+  -- moved dims in source order = ssort orders ORIGINAL dims~ Host
+  -- removes order[ssort[k]] for k descending then reinserts --
+  -- mirror: moved[k] = the dim value ssort[k] refers to in order0
+  -- indexing of the ORIGINAL rank. Since ssort holds original dim
+  -- indices, moved values are those dims themselves.
+  ins :: while { k: 0, ord: order0, acc_m: [] } {
+    (k, ord, acc_m) ~> if k < ns {
+      do {
+        mv :: ssort[k]
+        -- insert mv at position dsort[k] (clamped to current len)
+        pos :: aten_fmin(dsort[k], len(ord))
+        ord3 :: [...take(ord, pos), mv, ...drop(ord, pos)]
+        { state: { k: k + 1, ord: ord3, acc_m: ord3 } }
+      }
+    } else { { out: acc_m } }
+  }
+  -- ins threads ord through removals; final order = last ord3.
+  aten_permute(w, ins)
+}
+
+--- aten_rot90(t, k, dims) -- host k_rot90: kk = k mod 4, each
+-- step = flip(dims[1]) then transpose(dims[0], dims[1]).
+export aten_rot90 := (t, k, dims0) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  -- host default dims = [0, 1] (aten::rot90 schema default).
+  dims :: if dims0 == null {
+    [0, 1]
+  } else { dims0 }
+  check :: if len(dims) == 2 { true } else {
+    die("aten.rot90: dims must have exactly 2 elements")
+  }
+  d0 :: aten_wrap_dim(dims[0], r)
+  d1 :: aten_wrap_dim(dims[1], r)
+  check2 :: if d0 != d1 { true } else {
+    die("aten.rot90: dims must differ")
+  }
+  kk :: rem_euclid(k, 4)
+  res :: while { i: 0, cur: w } {
+    (i, cur) ~> if i < kk {
+      do {
+        f :: aten_W(aten_flip(cur, [dims[1]]))
+        tr :: aten_W(aten_swapaxes(f, dims[0], dims[1]))
+        { state: { i: i + 1, cur: tr } }
+      }
+    } else { { out: cur } }
+  }
+  res
+}
+
+-- p-norm family / cross / tensordot / kron / distances
+-- (appended to internal/aten.hnl by the port generator work)
+
+--- aten_reduce_dims_list(dims, r) -- null -> all axes; int -> [d];
+-- list -> as-is. Returns null untouched for the identity case is
+-- NOT done here -- callers distinguish [] themselves.
+export aten_reduce_dims_list := (dims, r) ~> do {
+  if dims == null {
+    while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      { state: { i: i + 1, acc: [...acc, i] } } } else { { out: acc } } }
+  } else {
+    if aten_is_num(dims) { [dims] } else { dims }
+  }
+}
+
+--- aten_p_norm(t, dims, ord, keepdim) -- host p_norm: ~|x|*ord
+-- then *(1/ord); ord=0 -> count nonzero. dims is the RAW arg
+-- (null/int/list); [] -> identity. ord=~inf cannot be
+-- represented on the wire (no inf literal) -- those host branches
+-- are unreachable here.
+export aten_p_norm := (t, dims, ord, keepdim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  spec :: aten_reduce_dims_list(dims, r)
+  wrapped :: if spec == null { null } else {
+    while { i: 0, acc: [] } { (i, acc) ~> if i < len(spec) {
+      { state: { i: i + 1, acc: [...acc, rem_euclid(spec[i], r)] } }
+    } else { { out: acc } } }
+  }
+  if wrapped != null && len(wrapped) == 0 {
+    aten_T(shp, w.__tensor__.data)
+  } else {
+    do {
+      dl :: if wrapped == null {
+        while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+          { state: { i: i + 1, acc: [...acc, i] } } } else { { out: acc } } }
+      } else { wrapped }
+      if ord == 0 {
+        aten_reduce(aten_W(aten_map1(w, (x) ~> if x != 0 { 1 } else { 0 })),
+          dl, keepdim, 0, (a, b) ~> a + b)
+      } else {
+        do {
+          pw :: aten_map1(w, (x) ~> math.pow(aten_abs(x), ord))
+          s :: aten_reduce(aten_W(pw), dl, keepdim, 0, (a, b) ~> a + b)
+          aten_T(s.s, aten_vmap(s.d, (x) ~> math.pow(x, 1 / ord)))
+        }
+      }
+    }
+  }
+}
+
+--- aten_norm(t, p) -- norm.Scalar: p-norm over ALL elements.
+export aten_norm := (t, p) ~> aten_p_norm(t, null, p, false)
+
+--- aten_renorm(t, p, dim, maxnorm) -- host k_renorm.
+export aten_renorm := (t, p, dim, maxnorm) ~> do {
+  w :: as_wire(t)
+  n :: aten_p_norm(w, [dim], p, true)
+  shp :: w.__tensor__.shape
+  full :: bc_data(n.d, n.s, shp)
+  src :: w.__tensor__.data
+  idxs :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(src) {
+      { state: { i: i + 1, acc: [...acc, i] } }
+    } else { { out: acc } }
+  }
+  ds :: aten_vmap(idxs, (i) ~> src[i] * aten_fmin(1, maxnorm / full[i]))
+  aten_T(shp, ds)
+}
+
+--- aten_normalize(t, ord, dims, keepdim) -- host k_normalize:
+-- x / max(~x~, 0.000000000001) (the NaN branch is dead on the wire).
+export aten_normalize := (t, ord, dims, keepdim) ~> do {
+  w :: as_wire(t)
+  n :: aten_p_norm(w, dims, ord, true)
+  shp :: w.__tensor__.shape
+  full :: bc_data(n.d, n.s, shp)
+  src :: w.__tensor__.data
+  idxs :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(src) {
+      { state: { i: i + 1, acc: [...acc, i] } }
+    } else { { out: acc } }
+  }
+  ds :: aten_vmap(idxs, (i) ~> src[i] / aten_fmax(full[i], 0.000000000001))
+  aten_T(shp, ds)
+}
+
+--- aten_cross(a, b, dim) -- host k_cross.
+export aten_cross := (a, b, dim) ~> do {
+  wa :: as_wire(a)
+  wb :: as_wire(b)
+  ash :: wa.__tensor__.shape
+  bsh :: wb.__tensor__.shape
+  check :: if ash == bsh { true } else {
+    die("aten.cross: shape mismatch")
+  }
+  r :: len(ash)
+  d :: if dim == null {
+    if r == 1 { 0 } else {
+      die("aten.cross: dim required for rank>1 operands")
+    }
+  } else { rem_euclid(dim, r) }
+  check2 :: if ash[d] == 3 { true } else {
+    die("aten.cross: cross dim extent != 3")
+  }
+  inner :: product(drop(ash, d + 1))
+  outer :: product(take(ash, d))
+  da :: wa.__tensor__.data
+  db :: wb.__tensor__.data
+  res :: while { o: 0, out: [] } {
+    (o, out) ~> if o < outer {
+      do {
+        blk :: while { j: 0, acc: [] } {
+          (j, acc) ~> if j < inner {
+            do {
+              b0 :: (o * 3 + 0) * inner + j
+              b1 :: (o * 3 + 1) * inner + j
+              b2 :: (o * 3 + 2) * inner + j
+              a0 :: da[b0]
+              a1 :: da[b1]
+              a2 :: da[b2]
+              c0 :: db[b0]
+              c1 :: db[b1]
+              c2 :: db[b2]
+              { state: { j: j + 1,
+                acc: [...acc, a1 * c2 - a2 * c1,
+                      a2 * c0 - a0 * c2,
+                      a0 * c1 - a1 * c0] } }
+            }
+          } else { { out: acc } }
+        }
+        { state: { o: o + 1, out: [...out, ...blk] } }
+      }
+    } else { { out: out } }
+  }
+  aten_T(ash, res)
+}
+
+--- aten_reshape(t, shape) -- {s,d} reshape (product must match).
+export aten_reshape := (t, shape) ~> do {
+  w :: as_wire(t)
+  n :: product(w.__tensor__.shape)
+  check :: if product(shape) == n { true } else {
+    die("aten.reshape: shape product mismatch")
+  }
+  aten_T(shape, w.__tensor__.data)
+}
+
+--- aten_tensordot(a, b, dims_self, dims_other) -- host
+-- k_tensordot: contract listed axes pairwise; result dims are
+-- as free dims then bs free dims.
+export aten_tensordot := (a, b, dims) ~> do {
+  wa0 :: as_wire(a)
+  wb0 :: as_wire(b)
+  ra0 :: len(wa0.__tensor__.shape)
+  rb0 :: len(wb0.__tensor__.shape)
+  -- torch dims: 0 -> outer; int k -> contract the last k axes of
+  -- each; [d1, d2] -> explicit axis lists (ints normalized to
+  -- singleton lists).
+  dims_self :: if aten_is_num(dims) {
+    if dims == 0 { [] } else {
+      while { i: ra0 - dims, acc: [] } { (i, acc) ~> if i < ra0 {
+        { state: { i: i + 1, acc: [...acc, i] } }
+      } else { { out: acc } } }
+    }
+  } else {
+    do {
+      dd :: dims[0]
+      if aten_is_num(dd) { [dd] } else { dd }
+    }
+  }
+  dims_other :: if aten_is_num(dims) {
+    if dims == 0 { [] } else {
+      while { i: rb0 - dims, acc: [] } { (i, acc) ~> if i < rb0 {
+        { state: { i: i + 1, acc: [...acc, i] } }
+      } else { { out: acc } } }
+    }
+  } else {
+    do {
+      dd :: dims[1]
+      if aten_is_num(dd) { [dd] } else { dd }
+    }
+  }
+  checkd :: if !aten_is_num(dims) || (dims >= 0 && dims <= ra0 && dims <= rb0) { true } else {
+    die("aten.tensordot: contract count out of range")
+  }
+  wa :: as_wire(a)
+  wb :: as_wire(b)
+  ash :: wa.__tensor__.shape
+  bsh :: wb.__tensor__.shape
+  ra :: len(ash)
+  rb :: len(bsh)
+  check :: if len(dims_self) == len(dims_other) { true } else {
+    die("aten.tensordot: contract count mismatch")
+  }
+  nc :: len(dims_self)
+  ca :: while { i: 0, acc: [] } { (i, acc) ~> if i < nc {
+    { state: { i: i + 1, acc: [...acc, rem_euclid(dims_self[i], ra)] } }
+  } else { { out: acc } } }
+  cb :: while { i: 0, acc: [] } { (i, acc) ~> if i < nc {
+    { state: { i: i + 1, acc: [...acc, rem_euclid(dims_other[i], rb)] } }
+  } else { { out: acc } } }
+  okc :: while { i: 0, acc: true } { (i, acc) ~> if i < nc {
+    do {
+      dup :: aten_mem(ca[i], take(ca, i)) || aten_mem(cb[i], take(cb, i))
+      good :: if dup { false } else { ash[ca[i]] == bsh[cb[i]] }
+      { state: { i: i + 1, acc: acc && good } }
+    }
+  } else { { out: acc } } }
+  check2 :: if okc { true } else {
+    die("aten.tensordot: bad contract dims")
+  }
+  free_a :: while { i: 0, acc: [] } { (i, acc) ~> if i < ra {
+    do { dd :: if aten_mem(i, ca) { null } else { i }
+      { state: { i: i + 1,
+        acc: if dd == null { acc } else { [...acc, i] } } }
+    }
+  } else { { out: acc } } }
+  free_b :: while { i: 0, acc: [] } { (i, acc) ~> if i < rb {
+    do { dd :: if aten_mem(i, cb) { null } else { i }
+      { state: { i: i + 1,
+        acc: if dd == null { acc } else { [...acc, i] } } }
+    }
+  } else { { out: acc } } }
+  dims_of :: (shp, ds) ~> while { i: 0, acc: [] } { (i, acc) ~> if i < len(ds) {
+    { state: { i: i + 1, acc: [...acc, shp[ds[i]]] } } } else { { out: acc } } }
+  na :: product(dims_of(ash, free_a))
+  nb :: product(dims_of(bsh, free_b))
+  k :: product(dims_of(ash, ca))
+  perm_a :: [...free_a, ...ca]
+  perm_b :: [...cb, ...free_b]
+  a2 :: aten_reshape(aten_W(aten_permute(wa, perm_a)), [na, k])
+  b2 :: aten_reshape(aten_W(aten_permute(wb, perm_b)), [k, nb])
+  c :: aten_mm2(aten_W(a2), aten_W(b2))
+  osh :: [...dims_of(ash, free_a), ...dims_of(bsh, free_b)]
+  aten_reshape(aten_W(c), osh)
+}
+
+--- aten_kron(a, b) -- host k_kron.
+export aten_kron := (a, b) ~> do {
+  wa :: as_wire(a)
+  wb :: as_wire(b)
+  ash :: wa.__tensor__.shape
+  bsh :: wb.__tensor__.shape
+  r :: len(ash)
+  check :: if r == len(bsh) { true } else {
+    die("aten.kron: rank mismatch")
+  }
+  osh :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    { state: { i: i + 1, acc: [...acc, ash[i] * bsh[i]] } }
+  } else { { out: acc } } }
+  sa :: strides(ash)
+  sb :: strides(bsh)
+  da :: wa.__tensor__.data
+  db :: wb.__tensor__.data
+  res :: while { p: 0, acc: [] } {
+    (p, acc) ~> if p < product(osh) {
+      do {
+        ix :: unravel(osh, p)
+        off :: while { i: 0, a2: 0, b2: 0 } {
+          (i, a2, b2) ~> if i < r {
+            { state: { i: i + 1,
+              a2: a2 + aten_floor(ix[i] / bsh[i]) * sa[i],
+              b2: b2 + (ix[i] % bsh[i]) * sb[i] } }
+          } else { { out: { a: a2, b: b2 } } }
+        }
+        { state: { p: p + 1, acc: [...acc, da[off.a] * db[off.b]] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(osh, res)
+}
+
+--- aten_p_dist_rows(da, db, p) -- (~|a-b|*p)*(1/p); p=+inf ->
+-- max|a-b| (host p_dist_rows).
+export aten_p_dist_rows := (da, db, p) ~> do {
+  if aten_is_infinite(p) {
+    while { i: 0, acc: 0 } {
+      (i, acc) ~> if i < len(da) {
+        { state: { i: i + 1, acc: aten_fmax(acc, aten_abs(da[i] - db[i])) } }
+      } else { { out: acc } }
+    }
+  } else {
+    s :: while { i: 0, acc: 0 } {
+      (i, acc) ~> if i < len(da) {
+        { state: { i: i + 1,
+          acc: acc + math.pow(aten_abs(da[i] - db[i]), p) } }
+      } else { { out: acc } }
+    }
+    math.pow(s, 1 / p)
+  }
+}
+
+--- aten_cdist(x1, x2, p) -- host k_cdist rank-2/rank-3.
+export aten_cdist := (x1, x2, p) ~> do {
+  w1 :: as_wire(x1)
+  w2 :: as_wire(x2)
+  s1 :: w1.__tensor__.shape
+  s2 :: w2.__tensor__.shape
+  d1 :: w1.__tensor__.data
+  d2 :: w2.__tensor__.data
+  if len(s1) == 2 && len(s2) == 2 {
+    b1 :: s1[0]
+    f :: s1[1]
+    check :: if f == s2[1] { true } else {
+      die("aten.cdist: feature dim mismatch")
+    }
+    r2 :: s2[0]
+    res :: while { i: 0, out: [] } {
+      (i, out) ~> if i < b1 {
+        do {
+          blk :: while { j: 0, acc: [] } {
+            (j, acc) ~> if j < r2 {
+              do {
+                v :: aten_p_dist_rows(slice(d1, i * f, f), slice(d2, j * f, f), p)
+                { state: { j: j + 1, acc: [...acc, v] } }
+              }
+            } else { { out: acc } }
+          }
+          { state: { i: i + 1, out: [...out, ...blk] } }
+        }
+      } else { { out: out } }
+    }
+    aten_T([b1, r2], res)
+  } else {
+    if len(s1) == 3 && len(s2) == 3 {
+      nb :: s1[0]
+      b1 :: s1[1]
+      f :: s1[2]
+      check :: if nb == s2[0] && f == s2[2] { true } else {
+        die("aten.cdist: batched shape mismatch")
+      }
+      r2 :: s2[1]
+      res :: while { n_: 0, out: [] } {
+        (n_, out) ~> if n_ < nb {
+          do {
+            blk :: while { i: 0, acc: [] } {
+              (i, acc) ~> if i < b1 {
+                do {
+                  row :: while { j: 0, acc2: [] } {
+                    (j, acc2) ~> if j < r2 {
+                      do {
+                        v :: aten_p_dist_rows(
+                          slice(d1, (n_ * b1 + i) * f, f),
+                          slice(d2, (n_ * r2 + j) * f, f), p)
+                        { state: { j: j + 1, acc2: [...acc2, v] } }
+                      }
+                    } else { { out: acc2 } }
+                  }
+                  { state: { i: i + 1, acc: [...acc, ...row] } }
+                }
+              } else { { out: acc } }
+            }
+            { state: { n_: n_ + 1, out: [...out, ...blk] } }
+          }
+        } else { { out: out } }
+      }
+      aten_T([nb, b1, r2], res)
+    } else {
+      die("aten.cdist: expected rank-2 or rank-3 operands")
+    }
+  }
+}
+
+--- aten_pdist(t, p) -- host k_pdist: condensed pairwise.
+export aten_pdist := (t, p) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  d :: w.__tensor__.data
+  pairs :: (b) ~> b * (b - 1) / 2
+  slab :: (base, b, f, out0) ~> while { i: 0, acc: out0 } {
+    (i, acc) ~> if i < b {
+      do {
+        acc2 :: while { j: i + 1, a2: acc } {
+          (j, a2) ~> if j < b {
+            do {
+              v :: aten_p_dist_rows(slice(d, base + i * f, f),
+                slice(d, base + j * f, f), p)
+              { state: { j: j + 1, a2: [...a2, v] } }
+            }
+          } else { { out: a2 } }
+        }
+        { state: { i: i + 1, acc: acc2 } }
+      }
+    } else { { out: acc } }
+  }
+  if len(shp) == 2 {
+    res :: slab(0, shp[0], shp[1], [])
+    aten_T([len(res)], res)
+  } else {
+    if len(shp) == 3 {
+      nb :: shp[0]
+      b :: shp[1]
+      f :: shp[2]
+      per :: pairs(b)
+      res :: while { n_: 0, out: [] } {
+        (n_, out) ~> if n_ < nb {
+          { state: { n_: n_ + 1, out: slab(n_ * b * f, b, f, out) } }
+        } else { { out: out } }
+      }
+      aten_T([nb, per], res)
+    } else {
+      die("aten.pdist: expected rank 2 or 3")
+    }
+  }
+}
+
+--- aten_dist(a, b, p) -- ~a-b~_p over broadcast operands.
+export aten_dist := (a, b, p) ~> do {
+  diff :: elementwise(a, b, (x, y) ~> x - y)
+  aten_p_norm(diff, null, p, false)
+}
+-- reductions-extra / norm-family / pooling / padding / pixel /
+-- statistics / search / constructors (appended to internal/aten.hnl)
+
+--- aten_erf(x) -- Abramowitz-Stegun 7.1.26, the hosts erf_approx
+-- (pure .hnl; needs only math.exp).
+export aten_erf := (x) ~> do {
+  sign :: if x < 0 { 0 - 1 } else { 1 }
+  ax :: aten_abs(x)
+  t :: 1 / (1 + 0.3275911 * ax)
+  y :: 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t
+    - 0.284496736) * t + 0.254829592) * t * math.exp(0 - ax * ax)
+  sign * y
+}
+
+--- aten_logsumexp(t, dims, keepdim) -- host reduce_logsumexp:
+-- max-subtract, ln(~ exp(x-mx)) + mx; dims is int[1] required.
+export aten_logsumexp := (t, dims0, keepdim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  dims :: if aten_is_num(dims0) { [dims0] } else { dims0 }
+  d :: rem_euclid(dims[0], len(shp))
+  mx :: aten_reduce(w, [d], true,
+    0 - aten_f64_max, (a, b) ~> aten_fmax(a, b))
+  -- broadcast mx back to t.shape
+  full :: bc_data(mx.d, mx.s, shp)
+  src :: w.__tensor__.data
+  idxs :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(src) {
+      { state: { i: i + 1, acc: [...acc, i] } }
+    } else { { out: acc } }
+  }
+  shifted :: aten_vmap(idxs, (i) ~> math.exp(src[i] - full[i]))
+  sw :: wire(shp, shifted)
+  s :: aten_reduce(sw, [d], true, 0, (a, b) ~> a + b)
+  -- out = ln(s) + mx elementwise (both keepdim-shaped, same shape)
+  ds :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(s.d) {
+      { state: { i: i + 1, acc: [...acc, math.log(s.d[i]) + mx.d[i]] } }
+    } else { { out: acc } }
+  }
+  tmp :: aten_T(s.s, ds)
+  if keepdim {
+    tmp
+  } else {
+    -- squeeze the reduced axis (size-1)
+    aten_T(while { i: 0, acc: [] } { (i, acc) ~> if i < len(tmp.s) {
+      do { dd :: if i == d { null } else { tmp.s[i] }
+        { state: { i: i + 1,
+          acc: if dd == null { acc } else { [...acc, dd] } } }
+      }
+    } else { { out: acc } } }, tmp.d)
+  }
+}
+
+--- aten_var_std(t, dims, unbiased, keepdim, want_std) -- host
+-- k_var_std: two-pass mean -> mean squared deviation -> Bessel
+-- n/(n-c) correction -> optional sqrt. dims raw (null/bool is
+-- handled by the caller -- the generated body disambiguates arg1).
+export aten_var_std := (t, dims, unbiased, keepdim, want_std) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  spec :: aten_reduce_dims_list(dims, r)
+  wrapped :: if spec == null { null } else {
+    while { i: 0, acc: [] } { (i, acc) ~> if i < len(spec) {
+      { state: { i: i + 1, acc: [...acc, rem_euclid(spec[i], r)] } }
+    } else { { out: acc } } }
+  }
+  dl :: if wrapped == null {
+    while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      { state: { i: i + 1, acc: [...acc, i] } } } else { { out: acc } } }
+  } else { wrapped }
+  redn :: product(while { i: 0, acc: [] } { (i, acc) ~> if i < len(dl) {
+    { state: { i: i + 1, acc: [...acc, shp[dl[i]]] } } } else { { out: acc } } })
+  -- pass 1: mean keepdim=true (reduce sums; divide by redn)
+  meansum :: aten_reduce(w, dl, true, 0, (a, b) ~> a + b)
+  meand :: aten_vmap(meansum.d, (v) ~> v / redn)
+  mean :: aten_T(meansum.s, meand)
+  mfull :: bc_data(mean.d, mean.s, shp)
+  src :: w.__tensor__.data
+  idxs :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(src) {
+      { state: { i: i + 1, acc: [...acc, i] } }
+    } else { { out: acc } }
+  }
+  mcnt :: len(dl)
+  meanv :: if mcnt == 0 {
+    -- identity dims: host reduces over the whole tensor once
+    sum(src) / len(src)
+  } else {
+    null
+  }
+  sq :: aten_vmap(idxs, (i) ~> do {
+    m :: if mcnt == 0 { meanv } else { mfull[i] }
+    x :: src[i] - m
+    x * x
+  })
+  sqw :: wire(shp, sq)
+  -- pass 2: biased mean of squares (keepdim per arg)
+  vs :: aten_reduce(sqw, dl, keepdim, 0, (a, b) ~> a + b)
+  n :: if mcnt == 0 { len(src) } else { redn }
+  c :: if unbiased { 1 } else { 0 }
+  denom :: aten_fmax(n - c, 0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000022250738585072014)
+  scale :: 1.0 / denom
+  ds :: aten_vmap(vs.d, (v) ~> do {
+    vv :: v * scale
+    if want_std { math.sqrt(vv) } else { vv }
+  })
+  aten_T(vs.s, ds)
+}
+
+--- aten_layer_norm(t, shape, weight, bias, eps) -- host
+-- k_layer_norm: biased var over the trailing shape dims,
+-- (x-mean)xrstd, then optional broadcast weight/bias.
+export aten_layer_norm := (t, shape, weight, bias, eps) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  ns :: len(shape)
+  check :: if ns > 0 && ns <= r { true } else {
+    die("aten.layer_norm: bad normalized_shape")
+  }
+  off :: r - ns
+  ok :: while { i: 0, acc: true } { (i, acc) ~> if i < ns {
+    { state: { i: i + 1, acc: acc && (shp[off + i] == shape[i]) } }
+  } else { { out: acc } } }
+  check2 :: if ok { true } else {
+    die("aten.layer_norm: normalized_shape mismatch")
+  }
+  inner :: product(shape)
+  outer :: product(take(shp, off))
+  src :: w.__tensor__.data
+  res :: while { o: 0, out: [] } {
+    (o, out) ~> if o < outer {
+      do {
+        base :: o * inner
+        blk :: slice(src, base, inner)
+        mean :: sum(blk) / inner
+        var :: sum(aten_vmap(blk, (x) ~> do {
+          d :: x - mean
+          d * d
+        })) / inner
+        rstd :: 1 / math.sqrt(var + eps)
+        row :: aten_vmap(blk, (x) ~> (x - mean) * rstd)
+        { state: { o: o + 1, out: [...out, ...row] } }
+      }
+    } else { { out: out } }
+  }
+  cur :: wire(shp, res)
+  cur2 :: if weight == null { cur } else {
+    elementwise(cur, weight, (x, y) ~> x * y)
+  }
+  fin :: if bias == null { cur2 } else {
+    elementwise(cur2, bias, (x, y) ~> x + y)
+  }
+  aten_T(fin.__tensor__.shape, fin.__tensor__.data)
+}
+
+--- aten_rms_norm(t, shape, weight, eps) -- host k_rms_norm.
+export aten_rms_norm := (t, shape, weight, eps) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  ns :: len(shape)
+  check :: if ns > 0 && ns <= r { true } else {
+    die("aten.rms_norm: bad normalized_shape")
+  }
+  off :: r - ns
+  ok :: while { i: 0, acc: true } { (i, acc) ~> if i < ns {
+    { state: { i: i + 1, acc: acc && (shp[off + i] == shape[i]) } }
+  } else { { out: acc } } }
+  check2 :: if ok { true } else {
+    die("aten.rms_norm: normalized_shape mismatch")
+  }
+  inner :: product(shape)
+  outer :: product(take(shp, off))
+  src :: w.__tensor__.data
+  res :: while { o: 0, out: [] } {
+    (o, out) ~> if o < outer {
+      do {
+        base :: o * inner
+        blk :: slice(src, base, inner)
+        ms :: sum(aten_vmap(blk, (x) ~> x * x)) / inner
+        rstd :: 1 / math.sqrt(ms + eps)
+        row :: aten_vmap(blk, (x) ~> x * rstd)
+        { state: { o: o + 1, out: [...out, ...row] } }
+      }
+    } else { { out: out } }
+  }
+  cur :: wire(shp, res)
+  if weight == null {
+    aten_T(shp, cur.__tensor__.data)
+  } else {
+    ew :: elementwise(cur, weight, (x, y) ~> x * y)
+    aten_T(ew.__tensor__.shape, ew.__tensor__.data)
+  }
+}
+
+--- aten_glu(t, dim) -- host k_glu: split dim in halves, a *
+-- sigmoid(b).
+export aten_glu := (t, dim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  d :: aten_wrap_dim(dim, len(shp))
+  width :: shp[d]
+  check :: if width % 2 == 0 { true } else {
+    die("aten.glu: dim extent must be even")
+  }
+  half :: width / 2
+  a :: aten_slice_dim(w, d, 0, half)
+  b :: aten_slice_dim(w, d, half, half)
+  sig :: aten_map1(aten_W(b), (x) ~> 1 / (1 + math.exp(0 - x)))
+  prod :: elementwise(aten_W(a), aten_W(sig), (x, y) ~> x * y)
+  aten_T(prod.__tensor__.shape, prod.__tensor__.data)
+}
+
+--- aten_avg_pool2d(t, kernel, stride, padding, ceil_mode,
+-- count_include_pad, divisor_override) -- host k_avg_pool2d.
+export aten_avg_pool2d := (t, kernel, stride, padding, ceil_mode,
+    count_include_pad, divisor_override) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  check :: if len(shp) == 4 { true } else {
+    die("aten.avg_pool2d: expected rank-4 NCHW")
+  }
+  kk :: if aten_is_num(kernel) { [kernel, kernel] } else { kernel }
+  kh :: kk[0]
+  kw :: kk[1]
+  check2 :: if kh > 0 && kw > 0 { true } else {
+    die("aten.avg_pool2d: kernel must be positive")
+  }
+  stv0 :: if stride == null { kk } else { stride }
+  stv :: if aten_is_num(stv0) { [stv0, stv0] } else { stv0 }
+  pv0 :: if padding == null { [0, 0] } else { padding }
+  pv :: if aten_is_num(pv0) { [pv0, pv0] } else { pv0 }
+  sh :: stv[0]
+  sw :: stv[1]
+  ph :: pv[0]
+  pw :: pv[1]
+  n :: shp[0]
+  c :: shp[1]
+  h :: shp[2]
+  ww :: shp[3]
+  hh_sat :: aten_fmax(h + 2 * ph - kh, 0)
+  ww_sat :: aten_fmax(ww + 2 * pw - kw, 0)
+  oh :: if ceil_mode {
+    aten_ceil((hh_sat * 1.0) / sh) + 1
+  } else {
+    aten_floor((hh_sat * 1.0) / sh) + 1
+  }
+  ow :: if ceil_mode {
+    aten_ceil((ww_sat * 1.0) / sw) + 1
+  } else {
+    aten_floor((ww_sat * 1.0) / sw) + 1
+  }
+  src :: w.__tensor__.data
+  res :: while { p: 0, acc: [] } {
+    (p, acc) ~> if p < n * c * oh * ow {
+      do {
+        ni :: aten_floor(p / (c * oh * ow))
+        rem1 :: p - ni * c * oh * ow
+        ci :: aten_floor(rem1 / (oh * ow))
+        rem2 :: rem1 - ci * oh * ow
+        oy :: aten_floor(rem2 / ow)
+        ox :: rem2 - oy * ow
+        y0 :: oy * sh
+        x0 :: ox * sw
+        acc2 :: while { ky: 0, s: 0, cnt: 0 } {
+          (ky, s, cnt) ~> if ky < kh {
+            do {
+              acc3 :: while { kx: 0, s2: s, cnt2: cnt } {
+                (kx, s2, cnt2) ~> if kx < kw {
+                  do {
+                    py :: y0 + ky - ph
+                    px :: x0 + kx - pw
+                    inside :: py >= 0 && px >= 0 && py < h && px < ww
+                    add :: if inside {
+                      s2 + src[((ni * c + ci) * h + py) * ww + px]
+                    } else { s2 }
+                    cnt3 :: if inside {
+                      cnt2 + 1
+                    } else {
+                      if count_include_pad { cnt2 + 1 } else { cnt2 }
+                    }
+                    { state: { kx: kx + 1, s2: add, cnt2: cnt3 } }
+                  }
+                } else { { out: { s: s2, c: cnt2 } } }
+              }
+              { state: { ky: ky + 1, s: acc3.s, cnt: acc3.c } }
+            }
+          } else { { out: { s: s, c: cnt } } }
+        }
+        div :: if divisor_override == null {
+          aten_fmax(acc2.c, 1)
+        } else { aten_fmax(divisor_override, 1) }
+        { state: { p: p + 1, acc: [...acc, acc2.s / div] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T([n, c, oh, ow], res)
+}
+
+--- aten_constant_pad_nd(t, pad, value) -- host
+-- k_constant_pad_nd: pad pairs apply last-dim-first.
+export aten_constant_pad_nd := (t, pad, value) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  npad :: len(pad) / 2
+  check :: if len(pad) % 2 == 0 && npad <= r { true } else {
+    die("aten.constant_pad_nd: invalid pad")
+  }
+  pads :: while { i: 0, acc: replicate([0, 0], r) } {
+    (i, acc) ~> if i < r {
+      do {
+        has :: i >= r - npad
+        pi_ :: r - 1 - i
+        pl :: if has { pad[2 * pi_] } else { 0 }
+        pr :: if has { pad[2 * pi_ + 1] } else { 0 }
+        { state: { i: i + 1, acc: set(acc, i, [pl, pr]) } }
+      }
+    } else { { out: acc } }
+  }
+  osh :: while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    do { pr :: pads[i]
+      { state: { i: i + 1, acc: [...acc, shp[i] + pr[0] + pr[1]] } }
+    }
+  } else { { out: acc } } }
+  st :: strides(shp)
+  src :: w.__tensor__.data
+  n :: product(osh)
+  res :: while { p: 0, acc: replicate(value, n) } {
+    (p, acc) ~> if p < n {
+      do {
+        ix :: unravel(osh, p)
+        inside :: while { i: 0, acc2: true } { (i, acc2) ~> if i < r {
+          do { pl :: pads[i][0]
+            ii :: ix[i] - pl
+            good :: ii >= 0 && ii < shp[i]
+            { state: { i: i + 1, acc2: acc2 && good } }
+          }
+        } else { { out: acc2 } } }
+        acc2v :: if inside {
+          do {
+            six :: while { i: 0, acc3: [] } { (i, acc3) ~> if i < r {
+              { state: { i: i + 1, acc3: [...acc3, ix[i] - pads[i][0]] } }
+            } else { { out: acc3 } } }
+            set(acc, p, src[dot(six, st)])
+          }
+        } else { acc }
+        { state: { p: p + 1, acc: acc2v } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T(osh, res)
+}
+
+--- aten_pixel_space_depth(t, r, shuffle) -- host
+-- pixel_space_depth: rank-4 NCHW space~depth.
+export aten_pixel_space_depth := (t, r, shuffle) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  check :: if len(shp) == 4 { true } else {
+    die("aten.pixel: expected rank-4 NCHW")
+  }
+  check2 :: if r > 0 { true } else {
+    die("aten.pixel: factor must be positive")
+  }
+  n :: shp[0]
+  c :: shp[1]
+  h :: shp[2]
+  ww :: shp[3]
+  rr :: r * r
+  if shuffle {
+    check3 :: if c % rr == 0 { true } else {
+      die("aten.pixel_shuffle: C not divisible by r*2")
+    }
+    oc :: c / rr
+    oh :: h * r
+    ow :: ww * r
+    src :: w.__tensor__.data
+    res :: while { p: 0, acc: [] } {
+      (p, acc) ~> if p < n * oc * oh * ow {
+        do {
+          ni :: aten_floor(p / (oc * oh * ow))
+          rem1 :: p - ni * oc * oh * ow
+          co :: aten_floor(rem1 / (oh * ow))
+          rem2 :: rem1 - co * oh * ow
+          oh_ :: aten_floor(rem2 / ow)
+          ow_ :: rem2 - oh_ * ow
+          i :: oh_ % r
+          j :: ow_ % r
+          ic :: co * rr + i * r + j
+          ih :: aten_floor(oh_ / r)
+          iw :: aten_floor(ow_ / r)
+          { state: { p: p + 1,
+            acc: [...acc, src[((ni * c + ic) * h + ih) * ww + iw]] } }
+        }
+      } else { { out: acc } }
+    }
+    aten_T([n, oc, oh, ow], res)
+  } else {
+    check3 :: if h % r == 0 && ww % r == 0 { true } else {
+      die("aten.pixel_unshuffle: H/W not divisible")
+    }
+    oc :: c * rr
+    oh :: h / r
+    ow :: ww / r
+    src :: w.__tensor__.data
+    res :: while { p: 0, acc: [] } {
+      (p, acc) ~> if p < n * oc * oh * ow {
+        do {
+          ni :: aten_floor(p / (oc * oh * ow))
+          rem1 :: p - ni * oc * oh * ow
+          oc_ :: aten_floor(rem1 / (oh * ow))
+          rem2 :: rem1 - oc_ * oh * ow
+          oh_ :: aten_floor(rem2 / ow)
+          ow_ :: rem2 - oh_ * ow
+          ci :: aten_floor(oc_ / rr)
+          rem3 :: oc_ - ci * rr
+          i :: aten_floor(rem3 / r)
+          j :: rem3 - i * r
+          ih :: oh_ * r + i
+          iw :: ow_ * r + j
+          { state: { p: p + 1,
+            acc: [...acc, src[((ni * c + ci) * h + ih) * ww + iw]] } }
+        }
+      } else { { out: acc } }
+    }
+    aten_T([n, oc, oh, ow], res)
+  }
+}
+
+--- aten_bincount(t, weights, minlength) -- host k_bincount.
+export aten_bincount := (t, weights, minlength) ~> do {
+  w :: as_wire(t)
+  src :: w.__tensor__.data
+  chk :: while { i: 0, acc: { ok: true, mx: 0 - 1 } } {
+    (i, acc) ~> if i < len(src) {
+      do {
+        x :: src[i]
+        good :: aten_is_finite(x) && x >= 0 && aten_fract(x) == 0
+        mx2 :: if good && x > acc.mx { x } else { acc.mx }
+        { state: { i: i + 1,
+          acc: { ok: acc.ok && good, mx: mx2 } } }
+      }
+    } else { { out: acc } }
+  }
+  check :: if chk.ok { true } else {
+    die("aten.bincount: input must be non-negative integers")
+  }
+  n :: aten_fmax(aten_fmax(chk.mx, 0) + 1, minlength)
+  wd :: if weights == null { replicate(1, len(src)) } else {
+    as_wire(weights).__tensor__.data
+  }
+  check2 :: if len(wd) == len(src) { true } else {
+    die("aten.bincount: weights numel mismatch")
+  }
+  res :: while { i: 0, acc: replicate(0, n) } {
+    (i, acc) ~> if i < len(src) {
+      do {
+        bi :: src[i]
+        { state: { i: i + 1, acc: set(acc, bi, acc[bi] + wd[i]) } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T([n], res)
+}
+
+--- aten_corrcoef(t) -- host k_corrcoef.
+export aten_corrcoef := (t) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  src :: w.__tensor__.data
+  if len(shp) == 1 {
+    n :: shp[0]
+    if n < 2 {
+      -- host returns NaN -- unrepresentable on the wire; emit 0 and
+      -- document (degenerate input only).
+      aten_T([], [0])
+    } else {
+      mean :: sum(src) / n
+      var :: sum(aten_vmap(src, (x) ~> do {
+        d :: x - mean
+        d * d
+      })) / (n - 1)
+      aten_T([], [if var > 0 { 1 } else { 0 }])
+    }
+  } else {
+    if len(shp) == 2 {
+      m :: shp[0]
+      n :: shp[1]
+      denom :: aten_fmax(n - 1, 0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000022250738585072014)
+      xc :: while { i: 0, acc: [] } {
+        (i, acc) ~> if i < m {
+          do {
+            row :: slice(src, i * n, n)
+            mean :: sum(row) / n
+            { state: { i: i + 1,
+              acc: [...acc, ...aten_vmap(row, (x) ~> x - mean)] } }
+          }
+        } else { { out: acc } }
+      }
+      cov :: while { i: 0, out: replicate(0, m * m) } {
+        (i, out) ~> if i < m {
+          do {
+            out2 :: while { j: 0, a2: out } {
+              (j, a2) ~> if j <= i {
+                do {
+                  s :: while { k: 0, acc3: 0 } {
+                    (k, acc3) ~> if k < n {
+                      { state: { k: k + 1,
+                        acc3: acc3 + xc[i * n + k] * xc[j * n + k] } }
+                    } else { { out: acc3 } }
+                  }
+                  v :: s / denom
+                  a3 :: set(a2, i * m + j, v)
+                  a4 :: set(a3, j * m + i, v)
+                  { state: { j: j + 1, a2: a4 } }
+                }
+              } else { { out: a2 } }
+            }
+            { state: { i: i + 1, out: out2 } }
+          }
+        } else { { out: out } }
+      }
+      res :: while { p: 0, acc: [] } {
+        (p, acc) ~> if p < m * m {
+          do {
+            i :: aten_floor(p / m)
+            j :: p - i * m
+            dd :: math.sqrt(cov[i * m + i] * cov[j * m + j])
+            v :: if dd == 0 { 0 } else { cov[p] / dd }
+            { state: { p: p + 1, acc: [...acc, v] } }
+          }
+        } else { { out: acc } }
+      }
+      aten_T([m, m], res)
+    } else {
+      die("aten.corrcoef: expected rank 1 or 2")
+    }
+  }
+}
+
+--- aten_to(t, spec) -- host k_to: f64-family dtype string or a
+-- tensor rhs -> identity; anything else errors. Returns {s,d}.
+export aten_to := (t, spec) ~> do {
+  w :: as_wire(t)
+  bad :: match spec {
+    [h, ...t]: false,
+    {f: fv}: false,
+    _: true
+  }
+  check :: if bad { die("aten.to: unsupported dtype") } else { true }
+  aten_T(w.__tensor__.shape, w.__tensor__.data)
+}
+
+-- ---------------------------------------------------------------------------
+-- Statistics / search / constructors
+-- ---------------------------------------------------------------------------
+
+--- aten_topk(t, k, dim, largest) -- host k_topk: sort along dim
+-- (descending iff largest), truncate to k -> {v: {s,d}, i: {s,d}}.
+export aten_topk := (t, k, dim, largest) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  d :: rem_euclid(dim, len(shp))
+  width :: shp[d]
+  check :: if k <= width { true } else {
+    die("aten.topk: k exceeds dim size")
+  }
+  sorted :: aten_sort_dim(w, dim, largest)
+  -- narrow both halves to first k along d
+  vv :: aten_slice_dim(aten_W(sorted.v), d, 0, k)
+  ii :: aten_slice_dim(aten_W(sorted.i), d, 0, k)
+  ({ v: vv, i: ii })
+}
+
+--- aten_searchsorted(sorted, self, right) -- host k_searchsorted
+-- simplified: self must be a tensor (scalar-self variant handled
+-- by wrapping rank-0); binary search per row of the last dim.
+export aten_searchsorted := (sorted, self_t, rgt) ~> do {
+  ws :: as_wire(sorted)
+  ssh :: ws.__tensor__.shape
+  rank :: len(ssh)
+  check :: if rank >= 1 { true } else {
+    die("aten.searchsorted: sorted must have rank >= 1")
+  }
+  n :: ssh[rank - 1]
+  sdata :: ws.__tensor__.data
+  outer_shape :: take(ssh, rank - 1)
+  outer_numel :: product(outer_shape)
+  bsearch :: (rowbase, v) ~> while { lo: 0, hi: n } {
+    (lo, hi) ~> if lo < hi {
+      do {
+        mid :: aten_floor((lo + hi) / 2)
+        mv :: sdata[rowbase + mid]
+        adv :: if rgt { mv > v } else { mv < v }
+        { state: { lo: if adv { mid + 1 } else { lo },
+                   hi: if adv { hi } else { mid } } }
+      }
+    } else { { out: lo } }
+  }
+  if aten_is_num(self_t) {
+    res :: while { o: 0, acc: [] } {
+      (o, acc) ~> if o < outer_numel {
+        { state: { o: o + 1, acc: [...acc, bsearch(o * n, self_t) * 1.0] } }
+      } else { { out: acc } }
+    }
+    aten_T(outer_shape, res)
+  } else {
+    wq :: as_wire(self_t)
+    qsh :: wq.__tensor__.shape
+    rs :: len(qsh)
+    check2 :: if rs >= 1 && rs <= rank { true } else {
+      die("aten.searchsorted: self rank incompatible")
+    }
+    m :: qsh[rs - 1]
+    s_outer :: take(qsh, rs - 1)
+    out_rank :: rank - 1
+    s_outer_rank :: len(s_outer)
+    ok :: while { i: 0, acc: true } { (i, acc) ~> if i < out_rank {
+      do {
+        sd :: if i < out_rank - s_outer_rank {
+          1
+        } else { s_outer[i - (out_rank - s_outer_rank)] }
+        od :: outer_shape[i]
+        { state: { i: i + 1, acc: acc && (sd == 1 || sd == od) } }
+      }
+    } else { { out: acc } } }
+    check3 :: if ok { true } else {
+      die("aten.searchsorted: self outer dims not broadcastable")
+    }
+    out_shape :: [...outer_shape, m]
+    qdata :: wq.__tensor__.data
+    s_outer_strides :: strides(s_outer)
+    res :: while { o: 0, acc: [] } {
+      (o, acc) ~> if o < outer_numel {
+        do {
+          coords :: unravel(outer_shape, o)
+          soff :: while { i: 0, a2: 0 } {
+            (i, a2) ~> if i < out_rank {
+              do {
+                sd :: if i < out_rank - s_outer_rank {
+                  1
+                } else { s_outer[i - (out_rank - s_outer_rank)] }
+                c :: if sd == 1 { 0 } else { coords[i] }
+                si :: i - (out_rank - s_outer_rank)
+                add :: if si >= 0 { c * s_outer_strides[si] } else { 0 }
+                { state: { i: i + 1, a2: a2 + add } }
+              }
+            } else { { out: a2 } }
+          }
+          blk :: while { q: 0, acc2: [] } {
+            (q, acc2) ~> if q < m {
+              do {
+                v :: qdata[soff * m + q]
+                { state: { q: q + 1,
+                  acc2: [...acc2, bsearch(o * n, v) * 1.0] } }
+              }
+            } else { { out: acc2 } }
+          }
+          { state: { o: o + 1, acc: [...acc, ...blk] } }
+        }
+      } else { { out: acc } }
+    }
+    aten_T(out_shape, res)
+  }
+}
+
+--- aten_meshgrid(ts) -- host k_meshgrid ij indexing.
+export aten_meshgrid := (ts) ~> do {
+  n :: len(ts)
+  check :: if n > 0 { true } else {
+    die("aten.meshgrid: empty tensor list")
+  }
+  ok :: while { i: 0, acc: true } { (i, acc) ~> if i < n {
+    do { wi :: as_wire(ts[i])
+      { state: { i: i + 1, acc: acc && (len(wi.__tensor__.shape) == 1) } }
+    }
+  } else { { out: acc } } }
+  check2 :: if ok { true } else {
+    die("aten.meshgrid: only rank-1 inputs")
+  }
+  lens :: while { i: 0, acc: [] } { (i, acc) ~> if i < n {
+    { state: { i: i + 1, acc: [...acc, as_wire(ts[i]).__tensor__.shape[0]] } }
+  } else { { out: acc } } }
+  count :: product(lens)
+  out :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < n {
+      do {
+        di :: as_wire(ts[i]).__tensor__.data
+        res :: while { p: 0, acc2: [] } {
+          (p, acc2) ~> if p < count {
+            do { ix :: unravel(lens, p)
+              { state: { p: p + 1, acc2: [...acc2, di[ix[i]]] } }
+            }
+          } else { { out: acc2 } }
+        }
+        { state: { i: i + 1, acc: [...acc, aten_T(lens, res)] } }
+      }
+    } else { { out: acc } }
+  }
+  while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(out) {
+      { state: { i: i + 1, acc: [...acc, aten_W(out[i])] } }
+    } else { { out: acc } }
+  }
+}
+
+--- aten_count_nonzero(t, dim) -- host k_count_nonzero.
+export null_dims := (w) ~> do {
+  r :: len(w.__tensor__.shape)
+  while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+    { state: { i: i + 1, acc: [...acc, i] } } } else { { out: acc } } }
+}
+
+--- aten_allclose(a, b, rtol, atol, equal_nan) -- host k_allclose
+-- -> rank-0 1/0 (equal_nan branch dead on the wire).
+export aten_count_nonzero := (t, dim) ~> do {
+  w :: as_wire(t)
+  mask :: aten_map1(w, (x) ~> if x != 0 { 1 } else { 0 })
+  if dim == null {
+    aten_reduce(aten_W(mask), null_dims(w), false, 0, (a, b) ~> a + b)
+  } else {
+    d :: rem_euclid(dim, len(w.__tensor__.shape))
+    aten_reduce(aten_W(mask), [d], true, 0, (a, b) ~> a + b)
+  }
+}
+
+--- null_dims(w) -- all axes of w as a list.
+export aten_allclose := (a, b, rtol, atol, equal_nan) ~> do {
+  d :: elementwise(a, b, (x, y) ~> if aten_abs(x - y) <= atol + rtol * aten_abs(y) { 1 } else { 0 })
+  allnz :: while { i: 0, acc: true } {
+    (i, acc) ~> if i < len(d.__tensor__.data) {
+      { state: { i: i + 1,
+        acc: acc && (d.__tensor__.data[i] != 0) } }
+    } else { { out: acc } }
+  }
+  aten_T([], [if allnz { 1 } else { 0 }])
+}
+
+--- aten_is_nonzero(t) -- any element != 0 -> rank-0 1/0.
+export aten_is_nonzero := (t) ~> do {
+  w :: as_wire(t)
+  src :: w.__tensor__.data
+  found :: while { i: 0, acc: false } {
+    (i, acc) ~> if i < len(src) {
+      { state: { i: i + 1, acc: acc || (src[i] != 0) } }
+    } else { { out: acc } }
+  }
+  aten_T([], [if found { 1 } else { 0 }])
+}
+
+--- aten_msort(t) -- sort last dim ascending, values only.
+export aten_msort := (t) ~> do {
+  w :: as_wire(t)
+  s :: aten_sort_dim(w, 0 - 1, false)
+  s.v
+}
+
+--- aten_nansum / aten_nanmean -- NaN branches dead on the wire.
+export aten_nansum := (t, dims, keepdim) ~> do {
+  w :: as_wire(t)
+  z :: aten_map1(w, (x) ~> if aten_is_nan(x) { 0 } else { x })
+  spec :: aten_reduce_dims_list(dims, len(w.__tensor__.shape))
+  dl :: if spec == null { null_dims(w) } else { spec }
+  aten_reduce(aten_W(z), dl, keepdim, 0, (a, b) ~> a + b)
+}
+
+export aten_nanmean := (t, dims, keepdim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  s :: aten_nansum(w, dims, keepdim)
+  mask :: aten_map1(w, (x) ~> if aten_is_nan(x) { 0 } else { 1 })
+  spec :: aten_reduce_dims_list(dims, r)
+  dl :: if spec == null {
+    while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+      { state: { i: i + 1, acc: [...acc, i] } } } else { { out: acc } } }
+  } else { spec }
+  c :: aten_reduce(aten_W(mask), dl, keepdim, 0, (a, b) ~> a + b)
+  ds :: while { i: 0, acc: [] } {
+    (i, acc) ~> if i < len(s.d) {
+      v :: if c.d[i] == 0 { 0 } else { s.d[i] / c.d[i] }
+      { state: { i: i + 1, acc: [...acc, v] } }
+    } else { { out: acc } }
+  }
+  aten_T(s.s, ds)
+}
+
+-- constructors / metadata
+
+export aten_full := (shape, fill) ~> do {
+  n :: product(shape)
+  aten_T(shape, replicate(fill, n))
+}
+
+export aten_full_like := (t, fill) ~> do {
+  w :: as_wire(t)
+  aten_T(w.__tensor__.shape, replicate(fill, len(w.__tensor__.data)))
+}
+export aten_zeros_like := (t) ~> aten_full_like(t, 0)
+export aten_ones_like := (t) ~> aten_full_like(t, 1)
+
+export aten_arange := (args) ~> do {
+  na :: len(args)
+  start :: if na >= 2 { args[0] } else { 0 }
+  end :: if na == 1 { args[0] } else { args[1] }
+  step :: if na >= 3 { args[2] } else { 1 }
+  check :: if step != 0 { true } else {
+    die("aten.arange: step must be nonzero")
+  }
+  res :: if step > 0 {
+    while { x: start, acc: [] } {
+      (x, acc) ~> if x < end {
+        { state: { x: x + step, acc: [...acc, x] } }
+      } else { { out: acc } }
+    }
+  } else {
+    while { x: start, acc: [] } {
+      (x, acc) ~> if x > end {
+        { state: { x: x + step, acc: [...acc, x] } }
+      } else { { out: acc } }
+    }
+  }
+  aten_T([len(res)], res)
+}
+
+export aten_linspace := (start, end, steps, log, base) ~> do {
+  check :: if steps > 0 { true } else {
+    die("aten.linspace: steps must be positive")
+  }
+  res :: if steps == 1 {
+    [if log { math.pow(base, start) } else { start }]
+  } else {
+    while { i: 0, acc: [] } {
+      (i, acc) ~> if i < steps {
+        do {
+          f :: (i * 1.0) / (steps - 1)
+          v :: start + f * (end - start)
+          { state: { i: i + 1,
+            acc: [...acc, if log { math.pow(base, v) } else { v }] } }
+        }
+      } else { { out: acc } }
+    }
+  }
+  aten_T([steps], res)
+}
+
+export aten_eye := (n, m) ~> do {
+  mm :: if m == null { n } else { m }
+  res :: while { p: 0, acc: [] } {
+    (p, acc) ~> if p < n * mm {
+      do {
+        i :: aten_floor(p / mm)
+        j :: p - i * mm
+        { state: { p: p + 1, acc: [...acc, if i == j { 1 } else { 0 }] } }
+      }
+    } else { { out: acc } }
+  }
+  aten_T([n, mm], res)
+}
+
+--- aten_sort_select(t, dim, pos, keepdim) -- sort along dim then
+-- take position pos (median/mode/kthvalue share this).
+export aten_sort_select := (t, dim, pos, keepdim) ~> do {
+  w :: as_wire(t)
+  s :: aten_sort_dim(w, dim, false)
+  d :: rem_euclid(dim, len(w.__tensor__.shape))
+  vv :: aten_select_dim_index(aten_W(s.v), d, pos)
+  ii :: aten_select_dim_index(aten_W(s.i), d, pos)
+  if keepdim {
+    -- reinsert size-1 axis at d
+    vsh :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(vv.s) + 1 {
+      do { q :: if i < d { i } else { i - 1 }
+        v :: if i == d { 1 } else { vv.s[q] }
+        { state: { i: i + 1, acc: [...acc, v] } }
+      }
+    } else { { out: acc } } }
+    ish :: while { i: 0, acc: [] } { (i, acc) ~> if i < len(ii.s) + 1 {
+      do { q :: if i < d { i } else { i - 1 }
+        v :: if i == d { 1 } else { ii.s[q] }
+        { state: { i: i + 1, acc: [...acc, v] } }
+      }
+    } else { { out: acc } } }
+    ({ v: aten_T(vsh, vv.d), i: aten_T(ish, ii.d) })
+  } else {
+    ({ v: vv, i: ii })
+  }
+}
+
+-- ---------------------------------------------------------------------------
+-- generated helpers (aten_port_gen) -- wrappers/dispatch shims the op
+-- bodies share. Kept in aten.hnl so every generated module sees them.
+-- ---------------------------------------------------------------------------
+
+export aten_id := (t) ~> do {
+  w :: as_wire(t)
+  aten_T(w.__tensor__.shape, w.__tensor__.data)
+}
+
+export aten_dot_wrap := (a, b) ~> do {
+  wa :: as_wire(a)
+  wb :: as_wire(b)
+  s :: aten_dot_data(wa.__tensor__.data, wb.__tensor__.data)
+  aten_T([], [s])
+}
+
+export aten_expand_as := (t, other) ~> do {
+  wo :: as_wire(other)
+  aten_expand(t, wo.__tensor__.shape)
+}
+
+export aten_reshape_view := (t, shape) ~> aten_reshape(t, shape)
+
+export aten_mean := (t, dims, keepdim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  spec :: aten_reduce_dims_list(dims, r)
+  if spec != null && len(spec) == 0 {
+    aten_T(shp, w.__tensor__.data)
+  } else {
+    do {
+      dl :: if spec == null {
+        while { i: 0, acc: [] } { (i, acc) ~> if i < r {
+          { state: { i: i + 1, acc: [...acc, i] } } } else { { out: acc } } }
+      } else { spec }
+      s :: aten_reduce(w, dl, keepdim, 0, (a, b) ~> a + b)
+      n :: product(while { i: 0, acc: [] } { (i, acc) ~> if i < len(dl) {
+        { state: { i: i + 1, acc: [...acc, shp[dl[i]]] } } } else { { out: acc } } })
+      if n == 0 { s } else {
+        aten_T(s.s, aten_vmap(s.d, (x) ~> x / n))
+      }
+    }
+  }
+}
+
+export aten_maxmin := (t, rest, want_max) ~> do {
+  w :: as_wire(t)
+  na :: len(rest)
+  r0isnum :: if na == 0 { false } else { aten_is_num(rest[0]) }
+  r0istensor :: if na == 0 { false } else { !aten_is_num(rest[0]) && rest[0] != null }
+  if na == 0 || rest[0] == null {
+    -- all-reduce -> {s,d}
+    init :: if want_max { 0 - aten_f64_max } else { aten_f64_max }
+    f :: if want_max { (a, b) ~> aten_fmax(a, b) } else { (a, b) ~> aten_fmin(a, b) }
+    aten_W(aten_reduce(w, null_dims(w), false, init, f))
+  } else {
+    if r0isnum {
+      -- (self, dim, keepdim~) -> {values, indices}
+      dim :: rest[0]
+      keepdim :: if na > 1 { rest[1] } else { false }
+      d :: rem_euclid(dim, len(w.__tensor__.shape))
+      vals :: if want_max {
+        aten_reduce(w, [d], keepdim, 0 - aten_f64_max, (a, b) ~> aten_fmax(a, b))
+      } else {
+        aten_reduce(w, [d], keepdim, aten_f64_max, (a, b) ~> aten_fmin(a, b))
+      }
+      idxs :: aten_arg_reduce(w, dim, keepdim, want_max)
+      ({ values: wire(vals.s, vals.d), indices: wire(idxs.s, idxs.d) })
+    } else {
+      -- elementwise maximum/minimum
+      elementwise(t, rest[0],
+        if want_max { (x, y) ~> aten_fmax(x, y) } else { (x, y) ~> aten_fmin(x, y) })
+    }
+  }
+}
+
+export aten_allany := (t, rest, want_all) ~> do {
+  w :: as_wire(t)
+  na :: len(rest)
+  dims :: if na == 0 { null } else { rest[0] }
+  keepdim :: if na > 1 { rest[1] } else { false }
+  spec :: aten_reduce_dims_list(dims, len(w.__tensor__.shape))
+  dl :: if spec == null { null_dims(w) } else { spec }
+  init :: if want_all { 1 } else { 0 }
+  f :: if want_all {
+    (a, b) ~> if (a != 0) && (b != 0) { 1 } else { 0 }
+  } else {
+    (a, b) ~> if (a != 0) || (b != 0) { 1 } else { 0 }
+  }
+  aten_W(aten_reduce(w, dl, keepdim, init, f))
+}
+
+export aten_prelu := (t, wgt) ~> do {
+  wa :: as_wire(t)
+  ww :: as_wire(wgt)
+  prod :: elementwise(ww, wa, (wv, xv) ~> wv * xv)
+  cond :: elementwise(wa, wa, (x, y) ~> if x > 0 { 1 } else { 0 })
+  aten_map3(cond, wa, prod, (c, x, y) ~> if c != 0 { x } else { y })
+}
+
+export aten_where_op := (t, rest) ~> do {
+  if len(rest) == 0 {
+    w :: as_wire(t)
+    nz :: aten_nonzero(w)
+    aten_T(nz.s, nz.d)
+  } else {
+    aten_where(t, rest[0], rest[1])
+  }
+}
+
+export aten_clamp_op := (t, rest) ~> do {
+  lo :: if len(rest) > 0 { rest[0] } else { null }
+  hi :: if len(rest) > 1 { rest[1] } else { null }
+  cur :: if lo == null { t } else { aten_clamp_side(t, lo, true) }
+  if hi == null { cur } else { aten_clamp_side(cur, hi, false) }
+}
+
+export aten_clamp_minmax := (t, rest, is_min) ~> do {
+  b :: if len(rest) > 0 { rest[0] } else {
+    die("aten.clamp: missing bound")
+  }
+  if is_min { aten_clamp_side(t, b, true) } else { aten_clamp_side(t, b, false) }
+}
+
+export aten_lerp := (a, b, weight) ~> do {
+  diff :: elementwise(b, a, (e, x) ~> e - x)
+  scaled :: aten_bin_ss(diff, weight, (dd, ww) ~> dd * ww)
+  elementwise(a, scaled, (x, y) ~> x + y)
+}
+
+export aten_addmm := (s, m1, m2, beta, alpha, batched) ~> do {
+  pb :: if batched { aten_bmm(m1, m2) } else { aten_mm2(m1, m2) }
+  prod :: wire(pb.s, pb.d)
+  sb :: elementwise(aten_arg_w(s), aten_arg_w(beta), (x, y) ~> x * y)
+  pa :: elementwise(prod, aten_arg_w(alpha), (x, y) ~> x * y)
+  elementwise(sb, pa, (x, y) ~> x + y)
+}
+
+-- shared insertion-sort over a flat list (median/quantile)
+export aten_isort := (xs) ~> while { i: 1, buf: xs } {
+  (i, buf) ~> if i < len(buf) {
+    do {
+      cur :: buf[i]
+      ins :: while { j: i, a2: buf } {
+        (j, a2) ~> if j > 0 {
+          do { pv :: a2[j - 1]
+            pv2 :: a2[j]
+            if pv2 < pv {
+              { state: { j: j - 1, a2: set(set(a2, j - 1, pv2), j, pv) } }
+            } else { { out: a2 } }
+          }
+        } else { { out: a2 } }
+      }
+      { state: { i: i + 1, buf: ins } }
+    }
+  } else { { out: buf } }
+}
+
+export aten_median := (t, rest) ~> do {
+  w :: as_wire(t)
+  if len(rest) == 0 {
+    sorted :: aten_isort(w.__tensor__.data)
+    n :: len(sorted)
+    if n == 0 { die("aten.median: empty tensor") } else {
+      aten_T([], [sorted[aten_floor((n - 1) / 2)]])
+    }
+  } else {
+    dim :: rest[0]
+    keepdim :: if len(rest) > 1 { rest[1] } else { false }
+    shp :: w.__tensor__.shape
+    d :: rem_euclid(dim, len(shp))
+    width :: shp[d]
+    if width == 0 { die("aten.median: empty dim") } else {
+      pos :: aten_floor((width - 1) / 2)
+      r :: aten_sort_select(w, dim, pos, keepdim)
+      ({ values: wire(r.v.s, r.v.d), indices: wire(r.i.s, r.i.d) })
+    }
+  }
+}
+
+export aten_mode := (t, dim, keepdim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  r :: len(shp)
+  d :: rem_euclid(dim, r)
+  width :: shp[d]
+  check :: if width > 0 { true } else {
+    die("aten.mode: empty dim")
+  }
+  inner :: product(drop(shp, d + 1))
+  outer :: product(take(shp, d))
+  src :: w.__tensor__.data
+  res :: while { o: 0, acc: { v: [], i: [] } } {
+    (o, acc) ~> if o < outer * inner {
+      do {
+        line :: while { k: 0, a2: [] } {
+          (k, a2) ~> if k < width {
+            { state: { k: k + 1,
+              a2: [...a2, src[(aten_floor(o / inner) * width + k) * inner + (o % inner)]] } }
+          } else { { out: a2 } }
+        }
+        best :: while { k: 0, bv: 0, bi: 999999999, bc: 0 - 1 } {
+          (k, bv, bi, bc) ~> if k < width {
+            do {
+              xv :: line[k]
+              cnt :: while { q: 0, c: 0 } {
+                (q, c) ~> if q < width {
+                  { state: { q: q + 1, c: if line[q] == xv { c + 1 } else { c } } }
+                } else { { out: c } }
+              }
+              fst :: while { q: 0, f: 0 - 1 } {
+                (q, f) ~> if q < width {
+                  { state: { q: q + 1, f: if f < 0 && line[q] == xv { q } else { f } } }
+                } else { { out: f } }
+              }
+              better :: cnt > bc || (cnt == bc && fst < bi)
+              { state: { k: k + 1,
+                bv: if better { xv } else { bv },
+                bi: if better { fst } else { bi },
+                bc: if better { cnt } else { bc } } }
+            }
+          } else { { out: { v: bv, i: bi } } }
+        }
+        { state: { o: o + 1,
+          acc: { v: [...acc.v, best.v], i: [...acc.i, best.i * 1.0] } } }
+      }
+    } else { { out: acc } }
+  }
+  kept :: while { q: 0, acc: [] } { (q, acc) ~> if q < r {
+    do { dd :: if q == d { null } else { q }
+      { state: { q: q + 1,
+        acc: if dd == null { acc } else { [...acc, shp[q]] } } }
+    }
+  } else { { out: acc } } }
+  vsh :: if keepdim {
+    while { q: 0, acc: [] } { (q, acc) ~> if q < r {
+      do { v :: if q == d { 1 } else { shp[q] }
+        { state: { q: q + 1, acc: [...acc, v] } }
+      }
+    } else { { out: acc } } }
+  } else { kept }
+  ({ values: wire(vsh, res.v), indices: wire(vsh, res.i) })
+}
+
+export aten_kthvalue := (t, k, dim, keepdim) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  d :: rem_euclid(dim, len(shp))
+  width :: shp[d]
+  check :: if k >= 1 && k <= width { true } else {
+    die("aten.kthvalue: k out of range")
+  }
+  r :: aten_sort_select(w, dim, k - 1, keepdim)
+  ({ values: wire(r.v.s, r.v.d), indices: wire(r.i.s, r.i.d) })
+}
+
+export aten_quantile := (t, rest) ~> do {
+  w :: as_wire(t)
+  shp :: w.__tensor__.shape
+  q :: rest[0]
+  dim :: if len(rest) > 1 { rest[1] } else { null }
+  keepdim :: if len(rest) > 2 { rest[2] } else { false }
+  interp :: if len(rest) > 3 { rest[3] } else { null }
+  check :: if interp == null || interp == "linear" { true } else {
+    die("aten.quantile: only linear interpolation")
+  }
+  qshape :: if aten_is_num(q) { [] } else { as_wire(q).__tensor__.shape }
+  qdata :: if aten_is_num(q) { [q] } else { as_wire(q).__tensor__.data }
+  okq :: while { i: 0, acc: true } { (i, acc) ~> if i < len(qdata) {
+    { state: { i: i + 1, acc: acc && (qdata[i] >= 0 && qdata[i] <= 1) } }
+  } else { { out: acc } } }
+  check2 :: if okq { true } else {
+    die("aten.quantile: q outside [0,1]")
+  }
+  nq :: len(qdata)
+  if dim == null {
+    sorted :: aten_isort(w.__tensor__.data)
+    nn :: len(sorted)
+    check3 :: if nn > 0 { true } else {
+      die("aten.quantile: empty tensor")
+    }
+    res :: while { i: 0, acc: [] } {
+      (i, acc) ~> if i < nq {
+        do {
+          h :: qdata[i] * (nn - 1)
+          i0 :: aten_fmin(aten_floor(h), nn - 1)
+          i1 :: aten_fmin(aten_ceil(h), nn - 1)
+          f :: h - aten_floor(h)
+          { state: { i: i + 1, acc: [...acc, sorted[i0] + f * (sorted[i1] - sorted[i0])] } }
+        }
+      } else { { out: acc } }
+    }
+    aten_T(qshape, res)
+  } else {
+    d :: rem_euclid(dim, len(shp))
+    width :: shp[d]
+    check4 :: if width > 0 { true } else {
+      die("aten.quantile: empty dim")
+    }
+    s :: aten_sort_dim(w, dim, false)
+    inner :: product(drop(shp, d + 1))
+    outer :: product(take(shp, d))
+    kept :: while { q2: 0, acc: [] } { (q2, acc) ~> if q2 < len(shp) {
+      do { dd :: if q2 == d { null } else { q2 }
+        { state: { q2: q2 + 1,
+          acc: if dd == null { acc } else { [...acc, shp[q2]] } } }
+      }
+    } else { { out: acc } } }
+    ksh :: if keepdim {
+      while { q2: 0, acc: [] } { (q2, acc) ~> if q2 < len(shp) {
+        do { v :: if q2 == d { 1 } else { shp[q2] }
+          { state: { q2: q2 + 1, acc: [...acc, v] } }
+        }
+      } else { { out: acc } } }
+    } else { kept }
+    osh :: [...qshape, ...ksh]
+    knots :: while { i: 0, acc: [] } {
+      (i, acc) ~> if i < nq {
+        do {
+          h :: qdata[i] * (width - 1)
+          i0 :: aten_fmin(aten_floor(h), width - 1)
+          i1 :: aten_fmin(aten_ceil(h), width - 1)
+          f :: h - aten_floor(h)
+          { state: { i: i + 1, acc: [...acc, [i0, i1, f]] } }
+        }
+      } else { { out: acc } }
+    }
+    res :: while { qi: 0, acc: [] } {
+      (qi, acc) ~> if qi < nq {
+        do {
+          kn :: knots[qi]
+          blk :: while { o: 0, out: [] } {
+            (o, out) ~> if o < outer * inner {
+              do {
+                line_i0 :: (aten_floor(o / inner) * width + kn[0]) * inner + (o % inner)
+                line_i1 :: (aten_floor(o / inner) * width + kn[1]) * inner + (o % inner)
+                v0 :: s.v.__tensor__.data[line_i0]
+                v1 :: s.v.__tensor__.data[line_i1]
+                { state: { o: o + 1, out: [...out, v0 + kn[2] * (v1 - v0)] } }
+              }
+            } else { { out: out } }
+          }
+          { state: { qi: qi + 1, acc: [...acc, ...blk] } }
+        }
+      } else { { out: acc } }
+    }
+    aten_T(osh, res)
+  }
+}
+
+-- ---------------------------------------------------------------------------
+-- result normalization for generated ops: drivers return either the
+-- {s, d} pair record or an already-wrapped wire tensor; aten_ow
+-- accepts both (a wire record has no .s field -> projects null).
+-- ---------------------------------------------------------------------------
+
+export aten_ow := (x) ~> aten_W(x)
+
+export aten_owl := (xs) ~> while { i: 0, acc: [] } {
+  (i, acc) ~> if i < len(xs) {
+    { state: { i: i + 1, acc: [...acc, aten_ow(xs[i])] } }
+  } else { { out: acc } }
+}

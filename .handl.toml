@@ -24,6 +24,11 @@ name = "lib-tensor"
 host-tensor = { git = "https://github.com/handl-lang/host-tensor", branch = "main", subdir = "src" }
 lib-tensor  = { path = "src" }
 ltensor     = { path = "src" }
+# math.* scalar leaves used throughout src/internal/aten.hnl — the
+# same dep host declares for its own .hnl side.
+math        = { path = "../lib-math/src" }
+math-handl  = { path = "../lib-math-handl/src" }
+math-c      = { path = "../lib-math-c/src" }
 
 [patch]
 # Sibling-checkout dev-link (the handl-lang `~/GitHub/handl-lang/*`

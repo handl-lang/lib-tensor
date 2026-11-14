@@ -1,0 +1,147 @@
+from "../internal/aten.hnl" import {
+  aten_T, aten_W, aten_ow, aten_owl, aten_is_num, aten_at, aten_opt,
+  aten_opt_num, aten_req, aten_arg_w, aten_wrap_dim, aten_mem,
+  aten_dim_spec, aten_bump, aten_vmap, aten_map1, aten_bin_ss, aten_map3,
+  aten_where, aten_clamp_side, aten_reduce, aten_arg_reduce, aten_cum,
+  aten_softmax, aten_sort_dim, aten_select_dim_index, aten_map_pos,
+  aten_permute, aten_flip, aten_repeat, aten_expand, aten_triu,
+  aten_slice_dim, aten_index_select, aten_unbind, aten_chunk, aten_split,
+  aten_stack, aten_nonzero, aten_mm2, aten_bmm, aten_mv, aten_dot_data,
+  aten_ger, aten_addr, aten_addmv, aten_gather, aten_index_add,
+  aten_take, aten_index_fill, aten_squeeze, aten_flatten, aten_slice,
+  aten_diag, aten_diagonal, aten_trace, aten_t, aten_swapaxes,
+  aten_moveaxis, aten_rot90, aten_reduce_dims_list, aten_p_norm,
+  aten_norm, aten_renorm, aten_normalize, aten_cross, aten_reshape,
+  aten_tensordot, aten_kron, aten_p_dist_rows, aten_cdist, aten_pdist,
+  aten_dist, aten_erf, aten_logsumexp, aten_var_std, aten_layer_norm,
+  aten_rms_norm, aten_glu, aten_avg_pool2d, aten_constant_pad_nd,
+  aten_pixel_space_depth, aten_bincount, aten_corrcoef, aten_to,
+  aten_topk, aten_searchsorted, aten_meshgrid, aten_count_nonzero,
+  null_dims, aten_allclose, aten_is_nonzero, aten_msort, aten_nansum,
+  aten_nanmean, aten_full, aten_full_like, aten_zeros_like,
+  aten_ones_like, aten_arange, aten_linspace, aten_eye, aten_sort_select,
+  aten_id, aten_dot_wrap, aten_expand_as, aten_reshape_view, aten_mean,
+  aten_ow, aten_owl,
+  aten_maxmin, aten_allany, aten_prelu, aten_where_op, aten_clamp_op,
+  aten_floor, aten_ceil, aten_trunc, aten_fract, aten_round, aten_abs,
+  aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
+  aten_sign, aten_f64_max,
+  aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
+  aten_mode, aten_kthvalue, aten_quantile
+}
+from "../internal/helpers.hnl" import {
+  die, len, product, replicate, set, slice, strides, unravel, dot,
+  take, drop, rem_euclid
+}
+from "../codec.hnl" import { wire, as_wire, wire_shape, wire_data }
+from "../elementwise.hnl" import elementwise
+from "math" import * as math
+--- aten-port-gen: index family ---
+-- aten: aten::nonzero(Tensor self) -> Tensor
+export nonzero := (t, ...rest) ~> aten_ow(aten_nonzero(t))
+
+-- aten: aten::argwhere(Tensor self) -> Tensor
+export argwhere := (t, ...rest) ~> aten_ow(aten_nonzero(t))
+
+-- aten: aten::squeeze.dims(Tensor(a) self, int[] dim) -> Tensor(a)
+export squeeze := (t, ...rest) ~> aten_ow(aten_squeeze(t, aten_opt(rest, 0, null)))
+
+-- aten: aten::index_select(Tensor self, int dim, Tensor index) -> Tensor
+export index_select := (t, ...rest) ~> aten_ow(aten_index_select(t, aten_req(rest, 0), aten_req(rest, 1)))
+
+-- aten: aten::gather(Tensor self, int dim, Tensor index, *, bool sparse_grad=False) -> Tensor
+export gather := (t, ...rest) ~> aten_ow(aten_gather(t, aten_req(rest, 0), aten_req(rest, 1)))
+
+-- aten: aten::index_add(Tensor self, int dim, Tensor index, Tensor source, *, Scalar alpha=1) -> Tensor
+export index_add := (t, ...rest) ~> aten_ow(aten_index_add(t, aten_req(rest, 0), aten_req(rest, 1), aten_req(rest, 2), aten_opt(rest, 3, 1)))
+
+-- aten: aten::index_fill.int_Scalar(Tensor self, int dim, Tensor index, Scalar value) -> Tensor
+export index_fill := (t, ...rest) ~> aten_ow(aten_index_fill(t, aten_req(rest, 0), aten_req(rest, 1), aten_req(rest, 2)))
+
+-- aten: aten::take(Tensor self, Tensor index) -> Tensor
+export take := (t, ...rest) ~> aten_ow(aten_take(t, aten_req(rest, 0)))
+
+-- aten: aten::flatten.using_ints(Tensor(a) self, int start_dim=0, int end_dim=-1) -> Tensor(a)
+export flatten := (t, ...rest) ~> aten_ow(aten_flatten(t, aten_opt(rest, 0, 0), aten_opt(rest, 1, -1)))
+
+-- aten: aten::expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) -> Tensor(a)
+export expand := (t, ...rest) ~> aten_ow(aten_expand(t, aten_req(rest, 0)))
+
+-- aten: aten::expand_as(Tensor(a) self, Tensor other) -> Tensor(a)
+export expand_as := (t, ...rest) ~> aten_ow(aten_expand_as(t, aten_req(rest, 0)))
+
+-- aten: aten::narrow(Tensor(a) self, int dim, SymInt start, SymInt length) -> Tensor(a)
+export narrow := (t, ...rest) ~> aten_ow(aten_slice_dim(t, aten_req(rest, 0), aten_req(rest, 1), aten_req(rest, 2)))
+
+-- aten: aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt start=None, SymInt end=None, SymInt step=1) -> Tensor(a)
+export slice := (t, ...rest) ~> aten_ow(aten_slice(t, aten_req(rest, 0), aten_opt(rest, 1, null), aten_opt(rest, 2, null), aten_opt(rest, 3, 1)))
+
+-- aten: aten::chunk(Tensor(a -> *) self, int chunks, int dim=0) -> Tensor(a)[]
+export chunk := (t, ...rest) ~> aten_owl(aten_chunk(t, aten_req(rest, 0), aten_opt(rest, 1, 0)))
+
+-- aten: aten::split.Tensor(Tensor(a -> *) self, SymInt split_size, int dim=0) -> Tensor(a)[]
+export split := (t, ...rest) ~> aten_owl(aten_split(t, aten_req(rest, 0), aten_opt(rest, 1, 0)))
+
+-- aten: aten::stack(Tensor[] tensors, int dim=0) -> Tensor
+export stack := (t, ...rest) ~> aten_ow(aten_stack(t, aten_opt(rest, 0, 0)))
+
+-- aten: aten::unbind.int(Tensor(a -> *) self, int dim=0) -> Tensor(a)[]
+export unbind := (t, ...rest) ~> aten_owl(aten_unbind(t, aten_req(rest, 0)))
+
+-- aten: aten::repeat(Tensor self, SymInt[] repeats) -> Tensor
+export repeat := (t, ...rest) ~> aten_ow(aten_repeat(t, aten_req(rest, 0)))
+
+-- aten: aten::flip(Tensor self, int[] dims) -> Tensor
+export flip := (t, ...rest) ~> aten_ow(aten_flip(t, aten_opt(rest, 0, null)))
+
+-- aten: aten::triu(Tensor self, SymInt diagonal=0) -> Tensor
+export triu := (t, ...rest) ~> aten_ow(aten_triu(t, aten_opt(rest, 0, 0), true))
+
+-- aten: aten::tril(Tensor self, SymInt diagonal=0) -> Tensor
+export tril := (t, ...rest) ~> aten_ow(aten_triu(t, aten_opt(rest, 0, 0), false))
+
+-- aten: aten::diag(Tensor self, int diagonal=0) -> Tensor
+export diag := (t, ...rest) ~> aten_ow(aten_diag(t, aten_opt(rest, 0, 0)))
+
+-- aten: aten::diagonal(Tensor(a) self, int offset=0, int dim1=0, int dim2=1) -> Tensor(a)
+export diagonal := (t, ...rest) ~> aten_ow(aten_diagonal(t, aten_opt(rest, 0, 0), aten_opt(rest, 1, 0), aten_opt(rest, 2, 1)))
+
+-- aten: aten::trace(Tensor self) -> Tensor
+export trace := (t, ...rest) ~> aten_ow(aten_trace(t))
+
+-- aten: aten::t(Tensor(a) self) -> Tensor(a)
+export t := (t, ...rest) ~> aten_ow(aten_t(t))
+
+-- aten: aten::mT(Tensor(a) self) -> Tensor(a)
+export mT := (t, ...rest) ~> aten_ow(aten_t(t))
+
+-- aten: aten::swapaxes(Tensor(a) self, int axis0, int axis1) -> Tensor(a)
+export swapaxes := (t, ...rest) ~> aten_ow(aten_swapaxes(t, aten_req(rest, 0), aten_req(rest, 1)))
+
+-- aten: aten::moveaxis.intlist(Tensor(a) self, int[] source, int[] destination) -> Tensor(a)
+export moveaxis := (t, ...rest) ~> aten_ow(aten_moveaxis(t, aten_req(rest, 0), aten_req(rest, 1)))
+
+-- aten: aten::rot90(Tensor self, int k=1, int[] dims=[0, 1]) -> Tensor
+export rot90 := (t, ...rest) ~> aten_ow(aten_rot90(t, aten_opt(rest, 0, 1), aten_opt(rest, 1, null)))
+
+-- aten: aten::contiguous(Tensor(a) self, *, MemoryFormat memory_format=0) -> Tensor(a)
+export contiguous := (t, ...rest) ~> aten_ow(aten_id(t))
+
+-- aten: aten::clone(Tensor self, *, MemoryFormat memory_format=None) -> Tensor
+export clone := (t, ...rest) ~> aten_ow(aten_id(t))
+
+-- aten: aten::detach(Tensor(a) self) -> Tensor(a)
+export detach := (t, ...rest) ~> aten_ow(aten_id(t))
+
+-- aten: aten::view(Tensor(a) self, SymInt[] size) -> Tensor(a)
+export view := (t, ...rest) ~> aten_ow(aten_reshape_view(t, aten_req(rest, 0)))
+
+-- aten: aten::pixel_shuffle(Tensor self, int upscale_factor) -> Tensor
+export pixel_shuffle := (t, ...rest) ~> aten_ow(aten_pixel_space_depth(t, aten_req(rest, 0), true))
+
+-- aten: aten::pixel_unshuffle(Tensor self, int downscale_factor) -> Tensor
+export pixel_unshuffle := (t, ...rest) ~> aten_ow(aten_pixel_space_depth(t, aten_req(rest, 0), false))
+
+-- aten: aten::constant_pad_nd(Tensor self, SymInt[] pad, Scalar value=0) -> Tensor
+export constant_pad_nd := (t, ...rest) ~> aten_ow(aten_constant_pad_nd(t, aten_req(rest, 0), aten_opt(rest, 1, 0)))
+

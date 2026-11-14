@@ -1,0 +1,81 @@
+from "../internal/aten.hnl" import {
+  aten_T, aten_W, aten_ow, aten_owl, aten_is_num, aten_at, aten_opt,
+  aten_opt_num, aten_req, aten_arg_w, aten_wrap_dim, aten_mem,
+  aten_dim_spec, aten_bump, aten_vmap, aten_map1, aten_bin_ss, aten_map3,
+  aten_where, aten_clamp_side, aten_reduce, aten_arg_reduce, aten_cum,
+  aten_softmax, aten_sort_dim, aten_select_dim_index, aten_map_pos,
+  aten_permute, aten_flip, aten_repeat, aten_expand, aten_triu,
+  aten_slice_dim, aten_index_select, aten_unbind, aten_chunk, aten_split,
+  aten_stack, aten_nonzero, aten_mm2, aten_bmm, aten_mv, aten_dot_data,
+  aten_ger, aten_addr, aten_addmv, aten_gather, aten_index_add,
+  aten_take, aten_index_fill, aten_squeeze, aten_flatten, aten_slice,
+  aten_diag, aten_diagonal, aten_trace, aten_t, aten_swapaxes,
+  aten_moveaxis, aten_rot90, aten_reduce_dims_list, aten_p_norm,
+  aten_norm, aten_renorm, aten_normalize, aten_cross, aten_reshape,
+  aten_tensordot, aten_kron, aten_p_dist_rows, aten_cdist, aten_pdist,
+  aten_dist, aten_erf, aten_logsumexp, aten_var_std, aten_layer_norm,
+  aten_rms_norm, aten_glu, aten_avg_pool2d, aten_constant_pad_nd,
+  aten_pixel_space_depth, aten_bincount, aten_corrcoef, aten_to,
+  aten_topk, aten_searchsorted, aten_meshgrid, aten_count_nonzero,
+  null_dims, aten_allclose, aten_is_nonzero, aten_msort, aten_nansum,
+  aten_nanmean, aten_full, aten_full_like, aten_zeros_like,
+  aten_ones_like, aten_arange, aten_linspace, aten_eye, aten_sort_select,
+  aten_id, aten_dot_wrap, aten_expand_as, aten_reshape_view, aten_mean,
+  aten_ow, aten_owl,
+  aten_maxmin, aten_allany, aten_prelu, aten_where_op, aten_clamp_op,
+  aten_floor, aten_ceil, aten_trunc, aten_fract, aten_round, aten_abs,
+  aten_fmax, aten_fmin, aten_is_nan, aten_is_finite, aten_is_infinite,
+  aten_sign, aten_f64_max,
+  aten_clamp_minmax, aten_lerp, aten_addmm, aten_isort, aten_median,
+  aten_mode, aten_kthvalue, aten_quantile
+}
+from "../internal/helpers.hnl" import {
+  die, len, product, replicate, set, slice, strides, unravel, dot,
+  take, drop, rem_euclid
+}
+from "../codec.hnl" import { wire, as_wire, wire_shape, wire_data }
+from "../elementwise.hnl" import elementwise
+from "math" import * as math
+--- aten-port-gen: pred family ---
+-- aten: aten::isfinite(Tensor self) -> Tensor
+export isfinite := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> if aten_is_finite(x) { 1 } else { 0 }))
+}
+
+-- aten: aten::isinf(Tensor self) -> Tensor
+export isinf := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> if aten_is_infinite(x) { 1 } else { 0 }))
+}
+
+-- aten: aten::isnan(Tensor self) -> Tensor
+export isnan := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> if aten_is_nan(x) { 1 } else { 0 }))
+}
+
+-- aten: aten::isposinf(Tensor self) -> Tensor
+export isposinf := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> if aten_is_infinite(x) && x > 0 { 1 } else { 0 }))
+}
+
+-- aten: aten::isneginf(Tensor self) -> Tensor
+export isneginf := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> if aten_is_infinite(x) && x < 0 { 1 } else { 0 }))
+}
+
+-- aten: aten::signbit(Tensor self) -> Tensor
+export signbit := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> if aten_sign(x) < 0 { 1 } else { 0 }))
+}
+
+-- aten: aten::logical_not(Tensor self) -> Tensor
+export logical_not := (t, ...rest) ~> do {
+  w :: as_wire(t)
+  aten_ow(aten_map1(w, (x) ~> if x == 0 { 1 } else { 0 }))
+}
+

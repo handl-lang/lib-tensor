@@ -97,6 +97,440 @@ export derive := __derive
 --- binds the whole surface at once, the same shape host-tensor's
 --- `tensor` record has (its fields are arrows where host's are
 --- qualified-name strings — both dispatch on call).
+-- >>> aten-port-gen: generated surface (do not edit) >>>
+from "./aten/unary.hnl" import abs as __aten_abs
+from "./aten/unary.hnl" import neg as __aten_neg
+from "./aten/unary.hnl" import exp as __aten_exp
+from "./aten/stub.hnl" import exp2 as __aten_exp2
+from "./aten/stub.hnl" import expm1 as __aten_expm1
+from "./aten/unary.hnl" import log as __aten_log
+from "./aten/stub.hnl" import log1p as __aten_log1p
+from "./aten/unary.hnl" import log2 as __aten_log2
+from "./aten/unary.hnl" import log10 as __aten_log10
+from "./aten/unary.hnl" import sqrt as __aten_sqrt
+from "./aten/unary.hnl" import rsqrt as __aten_rsqrt
+from "./aten/unary.hnl" import reciprocal as __aten_reciprocal
+from "./aten/unary.hnl" import square as __aten_square
+from "./aten/unary.hnl" import sin as __aten_sin
+from "./aten/unary.hnl" import cos as __aten_cos
+from "./aten/unary.hnl" import tan as __aten_tan
+from "./aten/unary.hnl" import asin as __aten_asin
+from "./aten/unary.hnl" import acos as __aten_acos
+from "./aten/unary.hnl" import atan as __aten_atan
+from "./aten/unary.hnl" import sinh as __aten_sinh
+from "./aten/unary.hnl" import cosh as __aten_cosh
+from "./aten/unary.hnl" import tanh as __aten_tanh
+from "./aten/unary.hnl" import asinh as __aten_asinh
+from "./aten/unary.hnl" import acosh as __aten_acosh
+from "./aten/unary.hnl" import atanh as __aten_atanh
+from "./aten/unary.hnl" import floor as __aten_floor
+from "./aten/unary.hnl" import ceil as __aten_ceil
+from "./aten/unary.hnl" import round as __aten_round
+from "./aten/unary.hnl" import trunc as __aten_trunc
+from "./aten/unary.hnl" import frac as __aten_frac
+from "./aten/unary.hnl" import sign as __aten_sign
+from "./aten/unary.hnl" import sigmoid as __aten_sigmoid
+from "./aten/unary.hnl" import silu as __aten_silu
+from "./aten/stub.hnl" import mish as __aten_mish
+from "./aten/unary.hnl" import gelu as __aten_gelu
+from "./aten/unary.hnl" import relu as __aten_relu
+from "./aten/unary.hnl" import selu as __aten_selu
+from "./aten/unary.hnl" import elu as __aten_elu
+from "./aten/unary.hnl" import celu as __aten_celu
+from "./aten/unary.hnl" import leaky_relu as __aten_leaky_relu
+from "./aten/linalg.hnl" import prelu as __aten_prelu
+from "./aten/stub.hnl" import softplus as __aten_softplus
+from "./aten/unary.hnl" import softshrink as __aten_softshrink
+from "./aten/unary.hnl" import hardshrink as __aten_hardshrink
+from "./aten/unary.hnl" import hardtanh as __aten_hardtanh
+from "./aten/unary.hnl" import threshold as __aten_threshold
+from "./aten/unary.hnl" import erf as __aten_erf
+from "./aten/unary.hnl" import erfc as __aten_erfc
+from "./aten/unary.hnl" import sinc as __aten_sinc
+from "./aten/unary.hnl" import deg2rad as __aten_deg2rad
+from "./aten/unary.hnl" import rad2deg as __aten_rad2deg
+from "./aten/unary.hnl" import logit as __aten_logit
+from "./aten/unary.hnl" import nan_to_num as __aten_nan_to_num
+from "./aten/binary.hnl" import heaviside as __aten_heaviside
+from "./aten/pred.hnl" import isfinite as __aten_isfinite
+from "./aten/pred.hnl" import isinf as __aten_isinf
+from "./aten/pred.hnl" import isnan as __aten_isnan
+from "./aten/pred.hnl" import isposinf as __aten_isposinf
+from "./aten/pred.hnl" import isneginf as __aten_isneginf
+from "./aten/pred.hnl" import signbit as __aten_signbit
+from "./aten/pred.hnl" import logical_not as __aten_logical_not
+from "./aten/binary.hnl" import atan2 as __aten_atan2
+from "./aten/binary.hnl" import hypot as __aten_hypot
+from "./aten/binary.hnl" import logaddexp as __aten_logaddexp
+from "./aten/stub.hnl" import logaddexp2 as __aten_logaddexp2
+from "./aten/binary.hnl" import maximum as __aten_maximum
+from "./aten/binary.hnl" import minimum as __aten_minimum
+from "./aten/stub.hnl" import nextafter as __aten_nextafter
+from "./aten/binary.hnl" import fmod as __aten_fmod
+from "./aten/binary.hnl" import floor_divide as __aten_floor_divide
+from "./aten/stub.hnl" import copysign as __aten_copysign
+from "./aten/binary.hnl" import remainder as __aten_remainder
+from "./aten/binary.hnl" import pow as __aten_pow
+from "./aten/binary.hnl" import float_power as __aten_float_power
+from "./aten/binary.hnl" import eq as __aten_eq
+from "./aten/binary.hnl" import ne as __aten_ne
+from "./aten/binary.hnl" import lt as __aten_lt
+from "./aten/binary.hnl" import le as __aten_le
+from "./aten/binary.hnl" import gt as __aten_gt
+from "./aten/binary.hnl" import ge as __aten_ge
+from "./aten/linalg.hnl" import where_ as __aten_where
+from "./aten/linalg.hnl" import clamp as __aten_clamp
+from "./aten/linalg.hnl" import clamp_min as __aten_clamp_min
+from "./aten/linalg.hnl" import clamp_max as __aten_clamp_max
+from "./aten/linalg.hnl" import lerp as __aten_lerp
+from "./aten/binary.hnl" import xlogy as __aten_xlogy
+from "./aten/binary.hnl" import logical_and as __aten_logical_and
+from "./aten/binary.hnl" import logical_or as __aten_logical_or
+from "./aten/binary.hnl" import logical_xor as __aten_logical_xor
+from "./aten/reduce.hnl" import sum as __aten_sum
+from "./aten/reduce.hnl" import prod as __aten_prod
+from "./aten/reduce.hnl" import mean as __aten_mean
+from "./aten/reduce.hnl" import var as __aten_var
+from "./aten/reduce.hnl" import std as __aten_std
+from "./aten/reduce.hnl" import amax as __aten_amax
+from "./aten/reduce.hnl" import amin as __aten_amin
+from "./aten/reduce.hnl" import argmax as __aten_argmax
+from "./aten/reduce.hnl" import argmin as __aten_argmin
+from "./aten/reduce.hnl" import logsumexp as __aten_logsumexp
+from "./aten/reduce.hnl" import all as __aten_all
+from "./aten/reduce.hnl" import any as __aten_any
+from "./aten/reduce.hnl" import cumsum as __aten_cumsum
+from "./aten/reduce.hnl" import cumprod as __aten_cumprod
+from "./aten/reduce.hnl" import softmax as __aten_softmax
+from "./aten/reduce.hnl" import log_softmax as __aten_log_softmax
+from "./aten/nn.hnl" import layer_norm as __aten_layer_norm
+from "./aten/nn.hnl" import rms_norm as __aten_rms_norm
+from "./aten/nn.hnl" import glu as __aten_glu
+from "./aten/sortsel.hnl" import sort_ as __aten_sort
+from "./aten/sortsel.hnl" import argsort as __aten_argsort
+from "./aten/sortsel.hnl" import topk as __aten_topk
+from "./aten/index.hnl" import nonzero as __aten_nonzero
+from "./aten/index.hnl" import argwhere as __aten_argwhere
+from "./aten/index.hnl" import squeeze as __aten_squeeze
+from "./aten/index.hnl" import index_select as __aten_index_select
+from "./aten/index.hnl" import gather as __aten_gather
+from "./aten/index.hnl" import index_add as __aten_index_add
+from "./aten/index.hnl" import index_fill as __aten_index_fill
+from "./aten/index.hnl" import take as __aten_take
+from "./aten/index.hnl" import flatten as __aten_flatten
+from "./aten/index.hnl" import expand as __aten_expand
+from "./aten/index.hnl" import expand_as as __aten_expand_as
+from "./aten/index.hnl" import narrow as __aten_narrow
+from "./aten/index.hnl" import slice as __aten_slice
+from "./aten/index.hnl" import chunk as __aten_chunk
+from "./aten/index.hnl" import split as __aten_split
+from "./aten/index.hnl" import stack as __aten_stack
+from "./aten/index.hnl" import unbind as __aten_unbind
+from "./aten/index.hnl" import repeat as __aten_repeat
+from "./aten/index.hnl" import flip as __aten_flip
+from "./aten/index.hnl" import triu as __aten_triu
+from "./aten/index.hnl" import tril as __aten_tril
+from "./aten/index.hnl" import diag as __aten_diag
+from "./aten/index.hnl" import diagonal as __aten_diagonal
+from "./aten/index.hnl" import trace as __aten_trace
+from "./aten/index.hnl" import t as __aten_t
+from "./aten/index.hnl" import mT as __aten_mT
+from "./aten/index.hnl" import swapaxes as __aten_swapaxes
+from "./aten/index.hnl" import moveaxis as __aten_moveaxis
+from "./aten/index.hnl" import rot90 as __aten_rot90
+from "./aten/index.hnl" import contiguous as __aten_contiguous
+from "./aten/index.hnl" import clone as __aten_clone
+from "./aten/index.hnl" import detach as __aten_detach
+from "./aten/index.hnl" import view as __aten_view
+from "./aten/index.hnl" import pixel_shuffle as __aten_pixel_shuffle
+from "./aten/index.hnl" import pixel_unshuffle as __aten_pixel_unshuffle
+from "./aten/index.hnl" import constant_pad_nd as __aten_constant_pad_nd
+from "./aten/linalg.hnl" import mm as __aten_mm
+from "./aten/linalg.hnl" import bmm as __aten_bmm
+from "./aten/linalg.hnl" import addmm as __aten_addmm
+from "./aten/linalg.hnl" import addbmm as __aten_addbmm
+from "./aten/linalg.hnl" import baddbmm as __aten_baddbmm
+from "./aten/linalg.hnl" import mv as __aten_mv
+from "./aten/linalg.hnl" import dot as __aten_dot
+from "./aten/linalg.hnl" import vdot as __aten_vdot
+from "./aten/linalg.hnl" import ger as __aten_ger
+from "./aten/linalg.hnl" import outer as __aten_outer
+from "./aten/linalg.hnl" import addr as __aten_addr
+from "./aten/linalg.hnl" import addmv as __aten_addmv
+from "./aten/construct.hnl" import full as __aten_full
+from "./aten/construct.hnl" import full_like as __aten_full_like
+from "./aten/construct.hnl" import zeros_like as __aten_zeros_like
+from "./aten/construct.hnl" import ones_like as __aten_ones_like
+from "./aten/construct.hnl" import arange as __aten_arange
+from "./aten/construct.hnl" import linspace as __aten_linspace
+from "./aten/construct.hnl" import logspace as __aten_logspace
+from "./aten/construct.hnl" import eye as __aten_eye
+from "./aten/construct.hnl" import size as __aten_size
+from "./aten/construct.hnl" import stride as __aten_stride
+from "./aten/construct.hnl" import numel as __aten_numel
+from "./aten/construct.hnl" import dim as __aten_dim
+from "./aten/construct.hnl" import item as __aten_item
+from "./aten/construct.hnl" import is_contiguous as __aten_is_contiguous
+from "./aten/nn.hnl" import avg_pool2d as __aten_avg_pool2d
+from "./aten/stub.hnl" import empty as __aten_empty
+from "./aten/stub.hnl" import rand as __aten_rand
+from "./aten/stub.hnl" import normal as __aten_normal
+from "./aten/stub.hnl" import unique as __aten_unique
+from "./aten/stub.hnl" import nonzero_dim as __aten_nonzero_dim
+from "./aten/stub.hnl" import einsum as __aten_einsum
+from "./aten/linalg.hnl" import tensordot as __aten_tensordot
+from "./aten/linalg.hnl" import kron as __aten_kron
+from "./aten/linalg.hnl" import cross as __aten_cross
+from "./aten/linalg.hnl" import norm as __aten_norm
+from "./aten/linalg.hnl" import renorm as __aten_renorm
+from "./aten/linalg.hnl" import normalize as __aten_normalize
+from "./aten/sortsel.hnl" import median as __aten_median
+from "./aten/sortsel.hnl" import mode as __aten_mode
+from "./aten/sortsel.hnl" import kthvalue as __aten_kthvalue
+from "./aten/sortsel.hnl" import quantile as __aten_quantile
+from "./aten/sortsel.hnl" import searchsorted as __aten_searchsorted
+from "./aten/construct.hnl" import bincount as __aten_bincount
+from "./aten/construct.hnl" import meshgrid as __aten_meshgrid
+from "./aten/construct.hnl" import corrcoef as __aten_corrcoef
+from "./aten/construct.hnl" import to as __aten_to
+from "./aten/reduce.hnl" import max as __aten_max
+from "./aten/reduce.hnl" import min as __aten_min
+from "./aten/reduce.hnl" import count_nonzero as __aten_count_nonzero
+from "./aten/linalg.hnl" import inner as __aten_inner
+from "./aten/linalg.hnl" import dist as __aten_dist
+from "./aten/misc.hnl" import allclose as __aten_allclose
+from "./aten/misc.hnl" import is_nonzero as __aten_is_nonzero
+from "./aten/sortsel.hnl" import msort as __aten_msort
+from "./aten/reduce.hnl" import nansum as __aten_nansum
+from "./aten/reduce.hnl" import nanmean as __aten_nanmean
+from "./aten/linalg.hnl" import cdist as __aten_cdist
+from "./aten/linalg.hnl" import pdist as __aten_pdist
+
+export abs := __aten_abs
+export neg := __aten_neg
+export exp := __aten_exp
+export exp2 := __aten_exp2
+export expm1 := __aten_expm1
+export log := __aten_log
+export log1p := __aten_log1p
+export log2 := __aten_log2
+export log10 := __aten_log10
+export sqrt := __aten_sqrt
+export rsqrt := __aten_rsqrt
+export reciprocal := __aten_reciprocal
+export square := __aten_square
+export sin := __aten_sin
+export cos := __aten_cos
+export tan := __aten_tan
+export asin := __aten_asin
+export acos := __aten_acos
+export atan := __aten_atan
+export sinh := __aten_sinh
+export cosh := __aten_cosh
+export tanh := __aten_tanh
+export asinh := __aten_asinh
+export acosh := __aten_acosh
+export atanh := __aten_atanh
+export floor := __aten_floor
+export ceil := __aten_ceil
+export round := __aten_round
+export trunc := __aten_trunc
+export frac := __aten_frac
+export sign := __aten_sign
+export sigmoid := __aten_sigmoid
+export silu := __aten_silu
+export mish := __aten_mish
+export gelu := __aten_gelu
+export relu := __aten_relu
+export selu := __aten_selu
+export elu := __aten_elu
+export celu := __aten_celu
+export leaky_relu := __aten_leaky_relu
+export prelu := __aten_prelu
+export softplus := __aten_softplus
+export softshrink := __aten_softshrink
+export hardshrink := __aten_hardshrink
+export hardtanh := __aten_hardtanh
+export threshold := __aten_threshold
+export erf := __aten_erf
+export erfc := __aten_erfc
+export sinc := __aten_sinc
+export deg2rad := __aten_deg2rad
+export rad2deg := __aten_rad2deg
+export logit := __aten_logit
+export nan_to_num := __aten_nan_to_num
+export heaviside := __aten_heaviside
+export isfinite := __aten_isfinite
+export isinf := __aten_isinf
+export isnan := __aten_isnan
+export isposinf := __aten_isposinf
+export isneginf := __aten_isneginf
+export signbit := __aten_signbit
+export logical_not := __aten_logical_not
+export atan2 := __aten_atan2
+export hypot := __aten_hypot
+export logaddexp := __aten_logaddexp
+export logaddexp2 := __aten_logaddexp2
+export maximum := __aten_maximum
+export minimum := __aten_minimum
+export nextafter := __aten_nextafter
+export fmod := __aten_fmod
+export floor_divide := __aten_floor_divide
+export copysign := __aten_copysign
+export remainder := __aten_remainder
+export pow := __aten_pow
+export float_power := __aten_float_power
+export eq := __aten_eq
+export ne := __aten_ne
+export lt := __aten_lt
+export le := __aten_le
+export gt := __aten_gt
+export ge := __aten_ge
+export clamp := __aten_clamp
+export clamp_min := __aten_clamp_min
+export clamp_max := __aten_clamp_max
+export lerp := __aten_lerp
+export xlogy := __aten_xlogy
+export logical_and := __aten_logical_and
+export logical_or := __aten_logical_or
+export logical_xor := __aten_logical_xor
+export sum := __aten_sum
+export prod := __aten_prod
+export mean := __aten_mean
+export var := __aten_var
+export std := __aten_std
+export amax := __aten_amax
+export amin := __aten_amin
+export argmax := __aten_argmax
+export argmin := __aten_argmin
+export logsumexp := __aten_logsumexp
+export all := __aten_all
+export any := __aten_any
+export cumsum := __aten_cumsum
+export cumprod := __aten_cumprod
+export softmax := __aten_softmax
+export log_softmax := __aten_log_softmax
+export layer_norm := __aten_layer_norm
+export rms_norm := __aten_rms_norm
+export glu := __aten_glu
+export argsort := __aten_argsort
+export topk := __aten_topk
+export nonzero := __aten_nonzero
+export argwhere := __aten_argwhere
+export squeeze := __aten_squeeze
+export index_select := __aten_index_select
+export gather := __aten_gather
+export index_add := __aten_index_add
+export index_fill := __aten_index_fill
+export take := __aten_take
+export flatten := __aten_flatten
+export expand := __aten_expand
+export expand_as := __aten_expand_as
+export narrow := __aten_narrow
+export slice := __aten_slice
+export chunk := __aten_chunk
+export split := __aten_split
+export stack := __aten_stack
+export unbind := __aten_unbind
+export repeat := __aten_repeat
+export flip := __aten_flip
+export triu := __aten_triu
+export tril := __aten_tril
+export diag := __aten_diag
+export diagonal := __aten_diagonal
+export trace := __aten_trace
+export t := __aten_t
+export mT := __aten_mT
+export swapaxes := __aten_swapaxes
+export moveaxis := __aten_moveaxis
+export rot90 := __aten_rot90
+export contiguous := __aten_contiguous
+export clone := __aten_clone
+export detach := __aten_detach
+export view := __aten_view
+export pixel_shuffle := __aten_pixel_shuffle
+export pixel_unshuffle := __aten_pixel_unshuffle
+export constant_pad_nd := __aten_constant_pad_nd
+export mm := __aten_mm
+export bmm := __aten_bmm
+export addmm := __aten_addmm
+export addbmm := __aten_addbmm
+export baddbmm := __aten_baddbmm
+export mv := __aten_mv
+export dot := __aten_dot
+export vdot := __aten_vdot
+export ger := __aten_ger
+export outer := __aten_outer
+export addr := __aten_addr
+export addmv := __aten_addmv
+export full := __aten_full
+export full_like := __aten_full_like
+export zeros_like := __aten_zeros_like
+export ones_like := __aten_ones_like
+export arange := __aten_arange
+export linspace := __aten_linspace
+export logspace := __aten_logspace
+export eye := __aten_eye
+export size := __aten_size
+export stride := __aten_stride
+export numel := __aten_numel
+export dim := __aten_dim
+export item := __aten_item
+export is_contiguous := __aten_is_contiguous
+export avg_pool2d := __aten_avg_pool2d
+export empty := __aten_empty
+export rand := __aten_rand
+export normal := __aten_normal
+export unique := __aten_unique
+export nonzero_dim := __aten_nonzero_dim
+export einsum := __aten_einsum
+export tensordot := __aten_tensordot
+export kron := __aten_kron
+export cross := __aten_cross
+export norm := __aten_norm
+export renorm := __aten_renorm
+export normalize := __aten_normalize
+export median := __aten_median
+export mode := __aten_mode
+export kthvalue := __aten_kthvalue
+export quantile := __aten_quantile
+export searchsorted := __aten_searchsorted
+export bincount := __aten_bincount
+export meshgrid := __aten_meshgrid
+export corrcoef := __aten_corrcoef
+export to := __aten_to
+export max := __aten_max
+export min := __aten_min
+export count_nonzero := __aten_count_nonzero
+export inner := __aten_inner
+export dist := __aten_dist
+export allclose := __aten_allclose
+export is_nonzero := __aten_is_nonzero
+export msort := __aten_msort
+export nansum := __aten_nansum
+export nanmean := __aten_nanmean
+export cdist := __aten_cdist
+export pdist := __aten_pdist
+-- <<< aten-port-gen <<<
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export ltensor := {
   zeros: __zeros,
   ones: __ones,
@@ -129,4 +563,211 @@ export ltensor := {
   concat_backward: __concat_backward,
   batch_norm_backward: __batch_norm_backward,
   derive: __derive
+  abs: __aten_abs,
+  neg: __aten_neg,
+  exp: __aten_exp,
+  exp2: __aten_exp2,
+  expm1: __aten_expm1,
+  log: __aten_log,
+  log1p: __aten_log1p,
+  log2: __aten_log2,
+  log10: __aten_log10,
+  sqrt: __aten_sqrt,
+  rsqrt: __aten_rsqrt,
+  reciprocal: __aten_reciprocal,
+  square: __aten_square,
+  sin: __aten_sin,
+  cos: __aten_cos,
+  tan: __aten_tan,
+  asin: __aten_asin,
+  acos: __aten_acos,
+  atan: __aten_atan,
+  sinh: __aten_sinh,
+  cosh: __aten_cosh,
+  tanh: __aten_tanh,
+  asinh: __aten_asinh,
+  acosh: __aten_acosh,
+  atanh: __aten_atanh,
+  floor: __aten_floor,
+  ceil: __aten_ceil,
+  round: __aten_round,
+  trunc: __aten_trunc,
+  frac: __aten_frac,
+  sign: __aten_sign,
+  sigmoid: __aten_sigmoid,
+  silu: __aten_silu,
+  mish: __aten_mish,
+  gelu: __aten_gelu,
+  relu: __aten_relu,
+  selu: __aten_selu,
+  elu: __aten_elu,
+  celu: __aten_celu,
+  leaky_relu: __aten_leaky_relu,
+  prelu: __aten_prelu,
+  softplus: __aten_softplus,
+  softshrink: __aten_softshrink,
+  hardshrink: __aten_hardshrink,
+  hardtanh: __aten_hardtanh,
+  threshold: __aten_threshold,
+  erf: __aten_erf,
+  erfc: __aten_erfc,
+  sinc: __aten_sinc,
+  deg2rad: __aten_deg2rad,
+  rad2deg: __aten_rad2deg,
+  logit: __aten_logit,
+  nan_to_num: __aten_nan_to_num,
+  heaviside: __aten_heaviside,
+  isfinite: __aten_isfinite,
+  isinf: __aten_isinf,
+  isnan: __aten_isnan,
+  isposinf: __aten_isposinf,
+  isneginf: __aten_isneginf,
+  signbit: __aten_signbit,
+  logical_not: __aten_logical_not,
+  atan2: __aten_atan2,
+  hypot: __aten_hypot,
+  logaddexp: __aten_logaddexp,
+  logaddexp2: __aten_logaddexp2,
+  maximum: __aten_maximum,
+  minimum: __aten_minimum,
+  nextafter: __aten_nextafter,
+  fmod: __aten_fmod,
+  floor_divide: __aten_floor_divide,
+  copysign: __aten_copysign,
+  remainder: __aten_remainder,
+  pow: __aten_pow,
+  float_power: __aten_float_power,
+  eq: __aten_eq,
+  ne: __aten_ne,
+  lt: __aten_lt,
+  le: __aten_le,
+  gt: __aten_gt,
+  ge: __aten_ge,
+  where: __aten_where,
+  clamp: __aten_clamp,
+  clamp_min: __aten_clamp_min,
+  clamp_max: __aten_clamp_max,
+  lerp: __aten_lerp,
+  xlogy: __aten_xlogy,
+  logical_and: __aten_logical_and,
+  logical_or: __aten_logical_or,
+  logical_xor: __aten_logical_xor,
+  sum: __aten_sum,
+  prod: __aten_prod,
+  mean: __aten_mean,
+  var: __aten_var,
+  std: __aten_std,
+  amax: __aten_amax,
+  amin: __aten_amin,
+  argmax: __aten_argmax,
+  argmin: __aten_argmin,
+  logsumexp: __aten_logsumexp,
+  all: __aten_all,
+  any: __aten_any,
+  cumsum: __aten_cumsum,
+  cumprod: __aten_cumprod,
+  softmax: __aten_softmax,
+  log_softmax: __aten_log_softmax,
+  layer_norm: __aten_layer_norm,
+  rms_norm: __aten_rms_norm,
+  glu: __aten_glu,
+  sort: __aten_sort,
+  argsort: __aten_argsort,
+  topk: __aten_topk,
+  nonzero: __aten_nonzero,
+  argwhere: __aten_argwhere,
+  squeeze: __aten_squeeze,
+  index_select: __aten_index_select,
+  gather: __aten_gather,
+  index_add: __aten_index_add,
+  index_fill: __aten_index_fill,
+  take: __aten_take,
+  flatten: __aten_flatten,
+  expand: __aten_expand,
+  expand_as: __aten_expand_as,
+  narrow: __aten_narrow,
+  slice: __aten_slice,
+  chunk: __aten_chunk,
+  split: __aten_split,
+  stack: __aten_stack,
+  unbind: __aten_unbind,
+  repeat: __aten_repeat,
+  flip: __aten_flip,
+  triu: __aten_triu,
+  tril: __aten_tril,
+  diag: __aten_diag,
+  diagonal: __aten_diagonal,
+  trace: __aten_trace,
+  t: __aten_t,
+  mT: __aten_mT,
+  swapaxes: __aten_swapaxes,
+  moveaxis: __aten_moveaxis,
+  rot90: __aten_rot90,
+  contiguous: __aten_contiguous,
+  clone: __aten_clone,
+  detach: __aten_detach,
+  view: __aten_view,
+  pixel_shuffle: __aten_pixel_shuffle,
+  pixel_unshuffle: __aten_pixel_unshuffle,
+  constant_pad_nd: __aten_constant_pad_nd,
+  mm: __aten_mm,
+  bmm: __aten_bmm,
+  addmm: __aten_addmm,
+  addbmm: __aten_addbmm,
+  baddbmm: __aten_baddbmm,
+  mv: __aten_mv,
+  dot: __aten_dot,
+  vdot: __aten_vdot,
+  ger: __aten_ger,
+  outer: __aten_outer,
+  addr: __aten_addr,
+  addmv: __aten_addmv,
+  full: __aten_full,
+  full_like: __aten_full_like,
+  zeros_like: __aten_zeros_like,
+  ones_like: __aten_ones_like,
+  arange: __aten_arange,
+  linspace: __aten_linspace,
+  logspace: __aten_logspace,
+  eye: __aten_eye,
+  size: __aten_size,
+  stride: __aten_stride,
+  numel: __aten_numel,
+  dim: __aten_dim,
+  item: __aten_item,
+  is_contiguous: __aten_is_contiguous,
+  avg_pool2d: __aten_avg_pool2d,
+  empty: __aten_empty,
+  rand: __aten_rand,
+  normal: __aten_normal,
+  unique: __aten_unique,
+  nonzero_dim: __aten_nonzero_dim,
+  einsum: __aten_einsum,
+  tensordot: __aten_tensordot,
+  kron: __aten_kron,
+  cross: __aten_cross,
+  norm: __aten_norm,
+  renorm: __aten_renorm,
+  normalize: __aten_normalize,
+  median: __aten_median,
+  mode: __aten_mode,
+  kthvalue: __aten_kthvalue,
+  quantile: __aten_quantile,
+  searchsorted: __aten_searchsorted,
+  bincount: __aten_bincount,
+  meshgrid: __aten_meshgrid,
+  corrcoef: __aten_corrcoef,
+  to: __aten_to,
+  max: __aten_max,
+  min: __aten_min,
+  count_nonzero: __aten_count_nonzero,
+  inner: __aten_inner,
+  dist: __aten_dist,
+  allclose: __aten_allclose,
+  is_nonzero: __aten_is_nonzero,
+  msort: __aten_msort,
+  nansum: __aten_nansum,
+  nanmean: __aten_nanmean,
+  cdist: __aten_cdist,
+  pdist: __aten_pdist,
 }
