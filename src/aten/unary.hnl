@@ -309,7 +309,7 @@ export softshrink := (t, ...rest) ~> do {
 export hardshrink := (t, ...rest) ~> do {
   lam :: aten_opt_num(rest, 0, 0.5)
   w :: as_wire(t)
-  aten_ow(aten_map1(w, (x) ~> if x > lam { x - lam } else { if x < 0 - lam { x + lam } else { 0 } }))
+  aten_ow(aten_map1(w, (x) ~> if aten_abs(x) > lam { x } else { 0 }))
 }
 
 -- aten: aten::hardtanh(Tensor self, Scalar min_val=-1, Scalar max_val=1) -> Tensor

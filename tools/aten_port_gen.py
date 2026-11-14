@@ -304,7 +304,7 @@ COMPOSE = {
     "softshrink": ("unary_p", "lam :: aten_opt_num(rest, 0, 0.5)",
                    "if x > lam { x - lam } else { if x < 0 - lam { x + lam } else { 0 } }"),
     "hardshrink": ("unary_p", "lam :: aten_opt_num(rest, 0, 0.5)",
-                   "if x > lam { x - lam } else { if x < 0 - lam { x + lam } else { 0 } }"),
+                   "if aten_abs(x) > lam { x } else { 0 }"),
     "hardtanh": ("unary_p2", "lo :: aten_opt_num(rest, 0, 0 - 1)\nhi :: aten_opt_num(rest, 1, 1)",
                  "aten_fmin(aten_fmax(x, lo), hi)"),
     "threshold": ("unary_p2", "th :: aten_opt_num(rest, 0, 0)\nv :: aten_opt_num(rest, 1, 0)",
