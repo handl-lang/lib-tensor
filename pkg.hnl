@@ -3,4 +3,4 @@
 -- on host-tensor is declared in `.handl.toml` (`git` + `subdir`):
 -- `pkg.hnl` deps resolve to `../lib-<name>` checkouts, which
 -- `host-tensor` is not.
-{ modules: ["lib-tensor"] }
+{ modules: ["lib-tensor"], description: "Pure-handl spec of the tensor op surface — the host-tensor mirror.", license: "MIT" }

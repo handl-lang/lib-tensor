@@ -155,7 +155,7 @@ src/shape_ops.hnl        reshape + transpose + unsqueeze + select + concat
 src/internal/helpers.hnl list/stride/odometer machinery, `die`
 src/lib_tensor.test.hnl  the .test.hnl spec suite (host-dependent)
 verify.hnl               the same suite as a runnable verdict program
-pkg.hnl                  { modules: ["lib-tensor"] }
+pkg.hnl                  package manifest — modules, deps, description, license
 .handl.toml              [package] + host-tensor git dep (subdir = "src") + [patch]
 ```
 
