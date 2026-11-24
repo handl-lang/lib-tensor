@@ -4,8 +4,8 @@ verify.hnl for the ~195 GENERATED aten ops (the arch-audit §3 gap:
 verify.hnl hand-covers only the original 31 ops).
 
 Inputs:
-  ../host-tensor/tools/aten_port_list.txt  — the curated pin list
-  ../host-tensor/tools/aten_schemas.json   — schema records (via
+  ../exec-tensor/tools/aten_port_list.txt  — the curated pin list
+  ../exec-tensor/tools/aten_schemas.json   — schema records (via
                                               aten_port_gen)
 
 Output (this repo, regenerated in place):
