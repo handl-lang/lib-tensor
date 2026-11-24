@@ -104,7 +104,7 @@ export strides := (shape) ~> while { i: len(shape) - 1, acc: 1, out: replicate(0
 --- under `shape`: `unravel([2, 3], 4)` → `[1, 1]`. Inverse of `ravel`:
 --- `ix[d] = (k / strides[d]) % shape[d]` with `%` the integer remainder.
 export unravel := (shape, k) ~> do {
-  st :: strides(shape)
+  st := strides(shape)
   while { i: 0, acc: [] } {
     (i, acc) ~> if i < len(shape) {
       { state: { i: i + 1, acc: [...acc, (k / st[i]) % shape[i]] } }

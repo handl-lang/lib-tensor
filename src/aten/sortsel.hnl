@@ -39,25 +39,25 @@ from "math" import * as math
 --- aten-port-gen: sortsel family ---
 -- aten: aten::sort(Tensor self, int dim=-1, bool descending=False) -> (Tensor values, Tensor indices)
 export sort_ := (t, ...rest) ~> do {
-  s :: aten_sort_dim(t, aten_opt(rest, 0, -1), aten_opt(rest, 1, false))
+  s := aten_sort_dim(t, aten_opt(rest, 0, -1), aten_opt(rest, 1, false))
   ({ values: aten_W(s.v), indices: aten_W(s.i) })
 }
 
 -- aten: aten::argsort(Tensor self, int dim=-1, bool descending=False) -> Tensor
 export argsort := (t, ...rest) ~> do {
-  s :: aten_sort_dim(t, aten_opt(rest, 0, -1), aten_opt(rest, 1, false))
+  s := aten_sort_dim(t, aten_opt(rest, 0, -1), aten_opt(rest, 1, false))
   aten_W(s.i)
 }
 
 -- aten: aten::topk(Tensor self, SymInt k, int dim=-1, bool largest=True, bool sorted=True) -> (Tensor values, Tensor indices)
 export topk := (t, ...rest) ~> do {
-  r :: aten_topk(t, aten_req(rest, 0), aten_opt(rest, 1, -1), aten_opt(rest, 2, true))
+  r := aten_topk(t, aten_req(rest, 0), aten_opt(rest, 1, -1), aten_opt(rest, 2, true))
   ({ values: aten_W(r.v), indices: aten_W(r.i) })
 }
 
 -- aten: aten::median(Tensor self) -> Tensor
 export median := (t, ...rest) ~> do {
-  r :: aten_median(t, rest)
+  r := aten_median(t, rest)
   if aten_is_num(r) || r.s != null { aten_ow(r) } else { r }
 }
 

@@ -39,43 +39,43 @@ from "math" import * as math
 --- aten-port-gen: pred family ---
 -- aten: aten::isfinite(Tensor self) -> Tensor
 export isfinite := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_map1(w, (x) ~> if aten_is_finite(x) { 1 } else { 0 }))
 }
 
 -- aten: aten::isinf(Tensor self) -> Tensor
 export isinf := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_map1(w, (x) ~> if aten_is_infinite(x) { 1 } else { 0 }))
 }
 
 -- aten: aten::isnan(Tensor self) -> Tensor
 export isnan := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_map1(w, (x) ~> if aten_is_nan(x) { 1 } else { 0 }))
 }
 
 -- aten: aten::isposinf(Tensor self) -> Tensor
 export isposinf := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_map1(w, (x) ~> if aten_is_infinite(x) && x > 0 { 1 } else { 0 }))
 }
 
 -- aten: aten::isneginf(Tensor self) -> Tensor
 export isneginf := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_map1(w, (x) ~> if aten_is_infinite(x) && x < 0 { 1 } else { 0 }))
 }
 
 -- aten: aten::signbit(Tensor self) -> Tensor
 export signbit := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_map1(w, (x) ~> if aten_sign(x) < 0 { 1 } else { 0 }))
 }
 
 -- aten: aten::logical_not(Tensor self) -> Tensor
 export logical_not := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_map1(w, (x) ~> if x == 0 { 1 } else { 0 }))
 }
 

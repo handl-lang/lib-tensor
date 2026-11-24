@@ -57,8 +57,8 @@ export as_wire := (t) ~> wire(t.__tensor__.shape, t.__tensor__.data)
 infer_sh := (xs) ~> match xs {
   []: [0],
   [h, ...t]: do {
-    sub_sh :: infer_sh(h)
-    check :: match t {
+    sub_sh := infer_sh(h)
+    check := match t {
       []: true,
       _: while { xs: t, ok: true } {
         (xs, ok) ~> match xs {
@@ -95,7 +95,7 @@ nest := (shape, ds) ~> match shape {
   [d, ...rest]: while { i: 0, acc: [], rem: ds } {
     (i, acc, rem) ~> if i < d {
       do {
-        r :: nest(rest, rem)
+        r := nest(rest, rem)
         { state: { i: i + 1, acc: [...acc, r.v], rem: r.rest } }
       }
     } else { { out: { v: acc, rest: rem } } }

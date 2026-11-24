@@ -55,7 +55,7 @@ export hypot := (a, b, ...rest) ~> do {
 -- aten: aten::logaddexp(Tensor self, Tensor other) -> Tensor
 export logaddexp := (a, b, ...rest) ~> do {
   aten_ow(aten_bin_ss(a, b, (x, y) ~> do {
-  m :: aten_fmax(x, y)
+  m := aten_fmax(x, y)
   m + math.log(math.exp(x - m) + math.exp(y - m))
 }))
 }
@@ -63,7 +63,7 @@ export logaddexp := (a, b, ...rest) ~> do {
 -- aten: aten::logaddexp2(Tensor self, Tensor other) -> Tensor
 export logaddexp2 := (a, b, ...rest) ~> do {
   aten_ow(aten_bin_ss(a, b, (x, y) ~> do {
-  m :: aten_fmax(x, y)
+  m := aten_fmax(x, y)
   m + math.log2(math.exp2(x - m) + math.exp2(y - m))
 }))
 }
@@ -101,7 +101,7 @@ export copysign := (a, b, ...rest) ~> do {
 -- aten: aten::remainder.Tensor(Tensor self, Tensor other) -> Tensor
 export remainder := (a, b, ...rest) ~> do {
   aten_ow(aten_bin_ss(a, b, (x, y) ~> do {
-  rr :: x % y
+  rr := x % y
   if rr != 0 && (rr < 0) != (y < 0) { rr + y } else { rr }
 }))
 }

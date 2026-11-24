@@ -15,36 +15,36 @@ from "./shape_ops.hnl" import { transpose }
 from "./elementwise.hnl" import { unbroadcast, add }
 
 export matmul := (a, b) ~> do {
-  wa :: as_wire(a)
-  wb :: as_wire(b)
-  ash :: wa.__tensor__.shape
-  bsh :: wb.__tensor__.shape
-  check_a :: if len(ash) == 2 || len(ash) == 3 { true } else { die("tensor.matmul: expected rank-2 or rank-3 lhs") }
-  check_b :: if len(bsh) == 2 || len(bsh) == 3 { true } else { die("tensor.matmul: expected rank-2 or rank-3 rhs") }
-  ba :: if len(ash) == 3 { ash[0] } else { 1 }
-  m :: if len(ash) == 3 { ash[1] } else { ash[0] }
-  k :: if len(ash) == 3 { ash[2] } else { ash[1] }
-  bb :: if len(bsh) == 3 { bsh[0] } else { 1 }
-  k2 :: if len(bsh) == 3 { bsh[1] } else { bsh[0] }
-  n :: if len(bsh) == 3 { bsh[2] } else { bsh[1] }
-  check_k :: if k == k2 { true } else { die("tensor.matmul: inner dimension mismatch") }
-  check_bat :: if ba == bb || ba == 1 || bb == 1 { true } else { die("tensor.matmul: batch dims are not broadcast-compatible") }
-  batch :: if ba >= bb { ba } else { bb }
-  a_slab :: m * k
-  b_slab :: k * n
-  batched :: len(ash) == 3 || len(bsh) == 3
-  osh :: if batched { [batch, m, n] } else { [m, n] }
-  da :: wa.__tensor__.data
-  db :: wb.__tensor__.data
-  ds :: while { i: 0, acc: [] } {
+  wa := as_wire(a)
+  wb := as_wire(b)
+  ash := wa.__tensor__.shape
+  bsh := wb.__tensor__.shape
+  check_a := if len(ash) == 2 || len(ash) == 3 { true } else { die("tensor.matmul: expected rank-2 or rank-3 lhs") }
+  check_b := if len(bsh) == 2 || len(bsh) == 3 { true } else { die("tensor.matmul: expected rank-2 or rank-3 rhs") }
+  ba := if len(ash) == 3 { ash[0] } else { 1 }
+  m := if len(ash) == 3 { ash[1] } else { ash[0] }
+  k := if len(ash) == 3 { ash[2] } else { ash[1] }
+  bb := if len(bsh) == 3 { bsh[0] } else { 1 }
+  k2 := if len(bsh) == 3 { bsh[1] } else { bsh[0] }
+  n := if len(bsh) == 3 { bsh[2] } else { bsh[1] }
+  check_k := if k == k2 { true } else { die("tensor.matmul: inner dimension mismatch") }
+  check_bat := if ba == bb || ba == 1 || bb == 1 { true } else { die("tensor.matmul: batch dims are not broadcast-compatible") }
+  batch := if ba >= bb { ba } else { bb }
+  a_slab := m * k
+  b_slab := k * n
+  batched := len(ash) == 3 || len(bsh) == 3
+  osh := if batched { [batch, m, n] } else { [m, n] }
+  da := wa.__tensor__.data
+  db := wb.__tensor__.data
+  ds := while { i: 0, acc: [] } {
     (i, acc) ~> if i < batch * m * n {
       do {
         -- flat output position → (bi, mi, ni) under [batch, m, n]
-        ix :: unravel([batch, m, n], i)
-        a_off :: if ba == 1 { 0 } else { ix[0] * a_slab }
-        b_off :: if bb == 1 { 0 } else { ix[0] * b_slab }
+        ix := unravel([batch, m, n], i)
+        a_off := if ba == 1 { 0 } else { ix[0] * a_slab }
+        b_off := if bb == 1 { 0 } else { ix[0] * b_slab }
         -- Σ_l a[bi, mi, l]·b[bi, l, ni]
-        v :: while { l: 0, s: 0 } {
+        v := while { l: 0, s: 0 } {
           (l, s) ~> if l < k {
             { state: { l: l + 1, s: s + da[a_off + ix[1] * k + l] * db[b_off + l * n + ix[2]] } }
           } else { { out: s } }
@@ -64,7 +64,7 @@ export matmul := (a, b) ~> do {
 --- elementwise four use (`add` here). No adjoint on the surface
 --- (`linear_backward` is undeclared) — `derive` returns `null`.
 export linear := (x, w, b) ~> do {
-  check_w :: if len(wire_shape(w)) == 2 { true } else {
+  check_w := if len(wire_shape(w)) == 2 { true } else {
     die("tensor.linear: weight must be rank-2 (out, in)")
   }
   add(matmul(x, transpose(w, 0, 1)), b)
@@ -75,20 +75,20 @@ export linear := (x, w, b) ~> do {
 --- and each grad is unbroadcast over `B` back to its operand's shape —
 --- a rank-2 or `B = 1` operand's grad sums across the broadcast batches.
 export matmul_backward := (a, b, g) ~> do {
-  wa :: as_wire(a)
-  wb :: as_wire(b)
-  wg :: as_wire(g)
-  ash :: wa.__tensor__.shape
-  bsh :: wb.__tensor__.shape
-  gsh :: wg.__tensor__.shape
-  osh :: wire_shape(matmul(wa, wb))
-  check :: if gsh == osh { true } else {
+  wa := as_wire(a)
+  wb := as_wire(b)
+  wg := as_wire(g)
+  ash := wa.__tensor__.shape
+  bsh := wb.__tensor__.shape
+  gsh := wg.__tensor__.shape
+  osh := wire_shape(matmul(wa, wb))
+  check := if gsh == osh { true } else {
     die("tensor.matmul_backward: grad_out shape != matmul output")
   }
-  bt :: transpose(wb, len(bsh) - 2, len(bsh) - 1)
-  at :: transpose(wa, len(ash) - 2, len(ash) - 1)
-  da :: matmul(wg, bt)
-  db :: matmul(at, wg)
+  bt := transpose(wb, len(bsh) - 2, len(bsh) - 1)
+  at := transpose(wa, len(ash) - 2, len(ash) - 1)
+  da := matmul(wg, bt)
+  db := matmul(at, wg)
   ({ a: wire(ash, unbroadcast(wire_data(da), wire_shape(da), ash)),
      b: wire(bsh, unbroadcast(wire_data(db), wire_shape(db), bsh)) })
 }

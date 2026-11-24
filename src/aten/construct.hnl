@@ -63,45 +63,45 @@ export eye := (t, ...rest) ~> aten_ow(aten_eye(t, aten_opt(rest, 0, null)))
 
 -- aten: aten::size.int(Tensor self, int dim) -> int
 export size := (t, ...rest) ~> do {
-  w :: as_wire(t)
-  shp :: w.__tensor__.shape
+  w := as_wire(t)
+  shp := w.__tensor__.shape
   if len(rest) == 0 || rest[0] == null {
     shp
   } else {
-    d :: rem_euclid(rest[0], len(shp))
+    d := rem_euclid(rest[0], len(shp))
     shp[d] * 1.0
   }
 }
 
 -- aten: aten::stride.int(Tensor self, int dim) -> int
 export stride := (t, ...rest) ~> do {
-  w :: as_wire(t)
-  shp :: w.__tensor__.shape
-  st :: strides(shp)
+  w := as_wire(t)
+  shp := w.__tensor__.shape
+  st := strides(shp)
   if len(rest) == 0 || rest[0] == null {
     st
   } else {
-    d :: rem_euclid(rest[0], len(shp))
+    d := rem_euclid(rest[0], len(shp))
     st[d] * 1.0
   }
 }
 
 -- aten: aten::numel(Tensor self) -> int
 export numel := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   len(w.__tensor__.data) * 1.0
 }
 
 -- aten: aten::dim(Tensor self) -> int
 export dim := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   len(w.__tensor__.shape) * 1.0
 }
 
 -- aten: aten::item(Tensor self) -> Scalar
 export item := (t, ...rest) ~> do {
-  w :: as_wire(t)
-  d :: w.__tensor__.data
+  w := as_wire(t)
+  d := w.__tensor__.data
   if len(d) == 1 {
     d[0]
   } else {

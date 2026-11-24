@@ -39,13 +39,13 @@ from "math" import * as math
 --- aten-port-gen: reduce family ---
 -- aten: aten::sum.dim_IntList(Tensor self, int[1] dim, bool keepdim=False, *, ScalarType dtype=None) -> Tensor
 export sum := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_reduce(w, aten_dim_spec(aten_opt(rest, 0, null), len(w.__tensor__.shape)), aten_opt(rest, 1, false), 0, (a, b) ~> a + b))
 }
 
 -- aten: aten::prod.dim_int(Tensor self, int dim, bool keepdim=False, *, ScalarType dtype=None) -> Tensor
 export prod := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_reduce(w, aten_dim_spec(aten_opt(rest, 0, null), len(w.__tensor__.shape)), aten_opt(rest, 1, false), 1, (a, b) ~> a * b))
 }
 
@@ -60,25 +60,25 @@ export std := (t, ...rest) ~> aten_ow(aten_var_std(t, aten_opt(rest, 0, null), a
 
 -- aten: aten::amax(Tensor self, int[1] dim=[], bool keepdim=False) -> Tensor
 export amax := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_reduce(w, aten_dim_spec(aten_opt(rest, 0, null), len(w.__tensor__.shape)), aten_opt(rest, 1, false), 0 - aten_f64_max, (a, b) ~> aten_fmax(a, b)))
 }
 
 -- aten: aten::amin(Tensor self, int[1] dim=[], bool keepdim=False) -> Tensor
 export amin := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_reduce(w, aten_dim_spec(aten_opt(rest, 0, null), len(w.__tensor__.shape)), aten_opt(rest, 1, false), aten_f64_max, (a, b) ~> aten_fmin(a, b)))
 }
 
 -- aten: aten::argmax(Tensor self, int dim=None, bool keepdim=False) -> Tensor
 export argmax := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_arg_reduce(t, aten_opt(rest, 0, null), aten_opt(rest, 1, false), true))
 }
 
 -- aten: aten::argmin(Tensor self, int dim=None, bool keepdim=False) -> Tensor
 export argmin := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_arg_reduce(t, aten_opt(rest, 0, null), aten_opt(rest, 1, false), false))
 }
 
@@ -93,25 +93,25 @@ export any := (t, ...rest) ~> aten_ow(aten_allany(t, rest, false))
 
 -- aten: aten::cumsum(Tensor self, int dim, *, ScalarType dtype=None) -> Tensor
 export cumsum := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_cum(t, aten_req(rest, 0), false))
 }
 
 -- aten: aten::cumprod(Tensor self, int dim, *, ScalarType dtype=None) -> Tensor
 export cumprod := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_cum(t, aten_req(rest, 0), true))
 }
 
 -- aten: aten::softmax.int(Tensor self, int dim, ScalarType dtype=None) -> Tensor
 export softmax := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_softmax(t, aten_req(rest, 0), false))
 }
 
 -- aten: aten::log_softmax.int(Tensor self, int dim, ScalarType dtype=None) -> Tensor
 export log_softmax := (t, ...rest) ~> do {
-  w :: as_wire(t)
+  w := as_wire(t)
   aten_ow(aten_softmax(t, aten_req(rest, 0), true))
 }
 

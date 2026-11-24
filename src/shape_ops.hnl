@@ -28,9 +28,9 @@ datas_of := (xs) ~> match xs {
 --- reshape is a view, not a permutation — the data order never moves).
 --- No `-1` wildcard, matching the host op.
 export reshape := (t, shape) ~> do {
-  w :: as_wire(t)
-  expected :: product(shape)
-  check :: if expected == len(w.__tensor__.data) { true } else {
+  w := as_wire(t)
+  expected := product(shape)
+  check := if expected == len(w.__tensor__.data) { true } else {
     die("tensor.reshape: shape's product does not equal the element count")
   }
   wire(shape, w.__tensor__.data)
@@ -42,34 +42,34 @@ export reshape := (t, shape) ~> do {
 --- row-major order, each index tuple mapped back through the permuted
 --- input strides.
 export transpose := (t, d0, d1) ~> do {
-  w :: as_wire(t)
-  shp :: w.__tensor__.shape
-  r :: len(shp)
-  check :: if d0 < r && d1 < r && d0 >= 0 && d1 >= 0 { true } else {
+  w := as_wire(t)
+  shp := w.__tensor__.shape
+  r := len(shp)
+  check := if d0 < r && d1 < r && d0 >= 0 && d1 >= 0 { true } else {
     die("tensor.transpose: dims out of range for the tensor's rank")
   }
-  perm :: while { i: 0, acc: [] } {
+  perm := while { i: 0, acc: [] } {
     (i, acc) ~> if i < r {
       do {
-        p :: if i == d0 { d1 } else { if i == d1 { d0 } else { i } }
+        p := if i == d0 { d1 } else { if i == d1 { d0 } else { i } }
         { state: { i: i + 1, acc: [...acc, p] } }
       }
     } else { { out: acc } }
   }
-  osh :: while { i: 0, acc: [] } {
+  osh := while { i: 0, acc: [] } {
     (i, acc) ~> if i < r {
       { state: { i: i + 1, acc: [...acc, shp[perm[i]]] } }
     } else { { out: acc } }
   }
-  st :: strides(shp)
-  dst :: w.__tensor__.data
-  n :: product(osh)
-  ds :: while { i: 0, acc: [] } {
+  st := strides(shp)
+  dst := w.__tensor__.data
+  n := product(osh)
+  ds := while { i: 0, acc: [] } {
     (i, acc) ~> if i < n {
       do {
-        ix :: unravel(osh, i)
+        ix := unravel(osh, i)
         -- output tuple ix reads input offset Σ_d ix[d]·st[perm[d]]
-        stp :: while { j: 0, acc2: [] } {
+        stp := while { j: 0, acc2: [] } {
           (j, acc2) ~> if j < r {
             { state: { j: j + 1, acc2: [...acc2, st[perm[j]]] } }
           } else { { out: acc2 } }
@@ -88,14 +88,14 @@ export transpose := (t, d0, d1) ~> do {
 --- than refusing. No adjoint on the surface (the backward is `squeeze`,
 --- undeclared) — `derive` returns `null`.
 export unsqueeze := (t, dim) ~> do {
-  w :: as_wire(t)
-  shp :: w.__tensor__.shape
-  r :: len(shp)
-  check_int :: if dim % 1 == 0 { true } else {
+  w := as_wire(t)
+  shp := w.__tensor__.shape
+  r := len(shp)
+  check_int := if dim % 1 == 0 { true } else {
     die("tensor.unsqueeze: dim must be an integer")
   }
-  d :: rem_euclid(dim, r + 1)
-  osh :: [...take(shp, d), 1, ...drop(shp, d)]
+  d := rem_euclid(dim, r + 1)
+  osh := [...take(shp, d), 1, ...drop(shp, d)]
   wire(osh, w.__tensor__.data)
 }
 
@@ -107,42 +107,42 @@ export unsqueeze := (t, dim) ~> do {
 --- wrapping. No adjoint on the surface (the backward is a scatter,
 --- undeclared) — `derive` returns `null`.
 export select := (t, dim, index) ~> do {
-  w :: as_wire(t)
-  shp :: w.__tensor__.shape
-  r :: len(shp)
-  check_rank :: if r > 0 { true } else {
+  w := as_wire(t)
+  shp := w.__tensor__.shape
+  r := len(shp)
+  check_rank := if r > 0 { true } else {
     die("tensor.select: cannot select an axis of a rank-0 tensor")
   }
-  check_int :: if dim % 1 == 0 && index % 1 == 0 { true } else {
+  check_int := if dim % 1 == 0 && index % 1 == 0 { true } else {
     die("tensor.select: dim and index must be integers")
   }
-  d :: rem_euclid(dim, r)
-  size :: shp[d]
-  check_idx :: if index >= 0 - size && index < size { true } else {
+  d := rem_euclid(dim, r)
+  size := shp[d]
+  check_idx := if index >= 0 - size && index < size { true } else {
     die("tensor.select: index out of range for the axis extent")
   }
-  i :: rem_euclid(index, size)
+  i := rem_euclid(index, size)
   -- kept axes in input order; output axis j reads input axis kept[j].
-  kept :: while { k: 0, acc: [] } {
+  kept := while { k: 0, acc: [] } {
     (k, acc) ~> if k < r {
       { state: { k: k + 1, acc: if k == d { acc } else { [...acc, k] } } }
     } else { { out: acc } }
   }
-  osh :: while { j: 0, acc: [] } {
+  osh := while { j: 0, acc: [] } {
     (j, acc) ~> if j < len(kept) {
       { state: { j: j + 1, acc: [...acc, shp[kept[j]]] } }
     } else { { out: acc } }
   }
-  st :: strides(shp)
-  fixed :: i * st[d]
-  dst :: w.__tensor__.data
-  n :: product(osh)
-  ds :: while { p: 0, acc: [] } {
+  st := strides(shp)
+  fixed := i * st[d]
+  dst := w.__tensor__.data
+  n := product(osh)
+  ds := while { p: 0, acc: [] } {
     (p, acc) ~> if p < n {
       do {
-        ix :: unravel(osh, p)
+        ix := unravel(osh, p)
         -- output tuple ix reads input offset fixed + Σ_j ix[j]·st[kept[j]]
-        off :: while { j: 0, a2: 0 } {
+        off := while { j: 0, a2: 0 } {
           (j, a2) ~> if j < len(kept) {
             { state: { j: j + 1, a2: a2 + ix[j] * st[kept[j]] } }
           } else { { out: a2 } }
@@ -160,25 +160,25 @@ export select := (t, dim, index) ~> do {
 --- after an `inner` contiguous run — each input's per-outer block is
 --- contiguous, copied block-by-block (the host impl's loop order).
 export concat := (xs, axis) ~> do {
-  check_nonempty :: if len(xs) > 0 { true } else {
+  check_nonempty := if len(xs) > 0 { true } else {
     die("tensor.concat: expected a non-empty list of tensors")
   }
-  shps :: shapes_of(xs)
-  dats :: datas_of(xs)
-  shp0 :: shps[0]
-  r :: len(shp0)
-  check_rank :: if r > 0 { true } else {
+  shps := shapes_of(xs)
+  dats := datas_of(xs)
+  shp0 := shps[0]
+  r := len(shp0)
+  check_rank := if r > 0 { true } else {
     die("tensor.concat: cannot concat rank-0 tensors")
   }
-  check_axis :: if axis < r && axis >= 0 { true } else {
+  check_axis := if axis < r && axis >= 0 { true } else {
     die("tensor.concat: axis out of range for the inputs' rank")
   }
-  check_shapes :: while { i: 1, ok: true } {
+  check_shapes := while { i: 1, ok: true } {
     (i, ok) ~> if i < len(shps) {
       do {
-        shp :: shps[i]
-        same_rank :: len(shp) == r
-        same_axes :: while { d: 0, ok2: true } {
+        shp := shps[i]
+        same_rank := len(shp) == r
+        same_axes := while { d: 0, ok2: true } {
           (d, ok2) ~> if d < r {
             { state: { d: d + 1, ok2: ok2 && (d == axis || shp[d] == shp0[d]) } }
           } else { { out: ok2 } }
@@ -187,33 +187,33 @@ export concat := (xs, axis) ~> do {
       }
     } else { { out: ok } }
   }
-  check_all :: if check_shapes { true } else {
+  check_all := if check_shapes { true } else {
     die("tensor.concat: inputs differ on a non-concat axis or rank")
   }
-  outer :: product(slice(shp0, 0, axis))
-  inner :: product(slice(shp0, axis + 1, r - axis - 1))
-  osh_axis :: while { i: 0, acc: 0 } {
+  outer := product(slice(shp0, 0, axis))
+  inner := product(slice(shp0, axis + 1, r - axis - 1))
+  osh_axis := while { i: 0, acc: 0 } {
     (i, acc) ~> if i < len(shps) {
       { state: { i: i + 1, acc: acc + shps[i][axis] } }
     } else { { out: acc } }
   }
-  osh :: while { i: 0, acc: [] } {
+  osh := while { i: 0, acc: [] } {
     (i, acc) ~> if i < r {
       do {
-        e :: if i == axis { osh_axis } else { shp0[i] }
+        e := if i == axis { osh_axis } else { shp0[i] }
         { state: { i: i + 1, acc: [...acc, e] } }
       }
     } else { { out: acc } }
   }
   -- for each outer block, append each input's contiguous
   -- shape[axis]·inner slab in input order.
-  ds :: while { o: 0, acc: [] } {
+  ds := while { o: 0, acc: [] } {
     (o, acc) ~> if o < outer {
       do {
-        acc2 :: while { i: 0, acc3: acc } {
+        acc2 := while { i: 0, acc3: acc } {
           (i, acc3) ~> if i < len(shps) {
             do {
-              slab :: shps[i][axis] * inner
+              slab := shps[i][axis] * inner
               { state: { i: i + 1, acc3: [...acc3, ...slice(dats[i], o * slab, slab)] } }
             }
           } else { { out: acc3 } }
@@ -228,13 +228,13 @@ export concat := (xs, axis) ~> do {
 --- `tensor.reshape_backward` — `g` relabeled back to the input's shape
 --- (a reshape moves no data; mirrors `ReshapeBackward`).
 export reshape_backward := (t, sh, g) ~> do {
-  wt :: as_wire(t)
-  wg :: as_wire(g)
-  ish :: wt.__tensor__.shape
-  check_elems :: if product(sh) == product(ish) { true } else {
+  wt := as_wire(t)
+  wg := as_wire(g)
+  ish := wt.__tensor__.shape
+  check_elems := if product(sh) == product(ish) { true } else {
     die("tensor.reshape_backward: shape element count != input's")
   }
-  check_grad :: if wg.__tensor__.shape == sh { true } else {
+  check_grad := if wg.__tensor__.shape == sh { true } else {
     die("tensor.reshape_backward: grad_out shape != reshape output")
   }
   ({ input: wire(ish, wg.__tensor__.data) })
@@ -243,8 +243,8 @@ export reshape_backward := (t, sh, g) ~> do {
 --- `tensor.transpose_backward` — `g` transposed along the same axes
 --- (transpose is self-inverse; mirrors `TransposeBackward`).
 export transpose_backward := (t, d0, d1, g) ~> do {
-  dx :: transpose(as_wire(g), d0, d1)
-  check :: if wire_shape(dx) == wire_shape(as_wire(t)) { true } else {
+  dx := transpose(as_wire(g), d0, d1)
+  check := if wire_shape(dx) == wire_shape(as_wire(t)) { true } else {
     die("tensor.transpose_backward: grad_out shape mismatch")
   }
   ({ input: dx })
@@ -254,17 +254,17 @@ export transpose_backward := (t, d0, d1, g) ~> do {
 --- input's extent (mirrors `ConcatBackward`): per input, the odometer
 --- maps its coordinates into `g` with the cumulative axis offset.
 export concat_backward := (xs, axis, g) ~> do {
-  wg :: as_wire(g)
-  gsh :: wg.__tensor__.shape
-  gd :: wg.__tensor__.data
-  gst :: strides(gsh)
-  r :: while { i: 0, off: 0, acc: [] } {
+  wg := as_wire(g)
+  gsh := wg.__tensor__.shape
+  gd := wg.__tensor__.data
+  gst := strides(gsh)
+  r := while { i: 0, off: 0, acc: [] } {
     (i, off, acc) ~> if i < len(xs) {
       do {
-        wt :: as_wire(xs[i])
-        tsh :: wt.__tensor__.shape
-        nn :: product(tsh)
-        dd :: while { k: 0, a2: [] } {
+        wt := as_wire(xs[i])
+        tsh := wt.__tensor__.shape
+        nn := product(tsh)
+        dd := while { k: 0, a2: [] } {
           (k, a2) ~> if k < nn {
             { state: { k: k + 1,
                        a2: [...a2, gd[off * gst[axis] + dot(unravel(tsh, k), gst)]] } }

@@ -15,15 +15,15 @@ from "./codec.hnl" import { wire, as_wire, wire_shape, wire_data }
 --- The broadcast of two shapes: pad the shorter with leading `1`s, then
 --- each pair must be equal or contain a `1`.
 export broadcast_shape := (a, b) ~> do {
-  r :: if len(a) >= len(b) { len(a) } else { len(b) }
-  pa :: [...replicate(1, r - len(a)), ...a]
-  pb :: [...replicate(1, r - len(b)), ...b]
+  r := if len(a) >= len(b) { len(a) } else { len(b) }
+  pa := [...replicate(1, r - len(a)), ...a]
+  pb := [...replicate(1, r - len(b)), ...b]
   while { i: 0, acc: [] } {
     (i, acc) ~> if i < r {
       do {
-        da :: pa[i]
-        db :: pb[i]
-        o :: if da == db { da } else {
+        da := pa[i]
+        db := pb[i]
+        o := if da == db { da } else {
           if da == 1 { db } else {
             if db == 1 { da } else { die("elementwise: shapes are not broadcast-compatible") }
           }
@@ -39,12 +39,12 @@ export broadcast_shape := (a, b) ~> do {
 --- except a dim of `1` (or a missing leading dim) contributes `0`, so
 --- its single index is reused across the stretch.
 export broadcast_strides := (shape, out_shape) ~> do {
-  inner :: strides(shape)
-  off :: len(out_shape) - len(shape)
-  inner_bc :: while { i: 0, acc: [] } {
+  inner := strides(shape)
+  off := len(out_shape) - len(shape)
+  inner_bc := while { i: 0, acc: [] } {
     (i, acc) ~> if i < len(shape) {
       do {
-        s :: if shape[i] == 1 { 0 } else { inner[i] }
+        s := if shape[i] == 1 { 0 } else { inner[i] }
         { state: { i: i + 1, acc: [...acc, s] } }
       }
     } else { { out: acc } }
@@ -56,21 +56,21 @@ export broadcast_strides := (shape, out_shape) ~> do {
 --- broadcast of `a` and `b`, accepting the wire record or an opaque
 --- tensor on either side.
 export elementwise := (a, b, f) ~> do {
-  wa :: as_wire(a)
-  wb :: as_wire(b)
-  ash :: wa.__tensor__.shape
-  bsh :: wb.__tensor__.shape
-  osh :: broadcast_shape(ash, bsh)
-  sa :: broadcast_strides(ash, osh)
-  sb :: broadcast_strides(bsh, osh)
-  da :: wa.__tensor__.data
-  db :: wb.__tensor__.data
-  n :: product(osh)
-  ds :: while { i: 0, acc: [] } {
+  wa := as_wire(a)
+  wb := as_wire(b)
+  ash := wa.__tensor__.shape
+  bsh := wb.__tensor__.shape
+  osh := broadcast_shape(ash, bsh)
+  sa := broadcast_strides(ash, osh)
+  sb := broadcast_strides(bsh, osh)
+  da := wa.__tensor__.data
+  db := wb.__tensor__.data
+  n := product(osh)
+  ds := while { i: 0, acc: [] } {
     (i, acc) ~> if i < n {
       do {
-        ix :: unravel(osh, i)
-        v :: f(da[dot(ix, sa)], db[dot(ix, sb)])
+        ix := unravel(osh, i)
+        v := f(da[dot(ix, sa)], db[dot(ix, sb)])
         { state: { i: i + 1, acc: [...acc, v] } }
       }
     } else { { out: acc } }
@@ -97,8 +97,8 @@ export div := (a, b) ~> elementwise(a, b, (x, y) ~> x / y)
 --- broadcast to `osh`: the odometer + 0-stride stretch, mirroring
 --- `broadcast_to` in host-tensor's elementwise.rs.
 export bc_data := (ds, sh, osh) ~> do {
-  st :: broadcast_strides(sh, osh)
-  n :: product(osh)
+  st := broadcast_strides(sh, osh)
+  n := product(osh)
   while { i: 0, acc: [] } {
     (i, acc) ~> if i < n {
       { state: { i: i + 1, acc: [...acc, ds[dot(unravel(osh, i), st)]] } }
@@ -111,25 +111,25 @@ export bc_data := (ds, sh, osh) ~> do {
 --- `tsh` lacks and any dim where `tsh` is `1` but `gsh` is larger
 --- (mirrors `unbroadcast` in host-tensor's elementwise.rs).
 export unbroadcast := (gd, gsh, tsh) ~> do {
-  check :: if len(tsh) <= len(gsh) { true } else {
+  check := if len(tsh) <= len(gsh) { true } else {
     die("unbroadcast: target rank exceeds grad rank")
   }
-  off :: len(gsh) - len(tsh)
-  tst :: strides(tsh)
+  off := len(gsh) - len(tsh)
+  tst := strides(tsh)
   -- masked strides: a `1` dim sums out (contributes stride 0).
-  mst :: while { i: 0, acc: [] } {
+  mst := while { i: 0, acc: [] } {
     (i, acc) ~> if i < len(tsh) {
       do {
-        s :: if tsh[i] == 1 { 0 } else { tst[i] }
+        s := if tsh[i] == 1 { 0 } else { tst[i] }
         { state: { i: i + 1, acc: [...acc, s] } }
       }
     } else { { out: acc } }
   }
-  n :: product(gsh)
+  n := product(gsh)
   while { i: 0, acc: replicate(0, product(tsh)) } {
     (i, acc) ~> if i < n {
       do {
-        ti :: dot(slice(unravel(gsh, i), off, len(tsh)), mst)
+        ti := dot(slice(unravel(gsh, i), off, len(tsh)), mst)
         { state: { i: i + 1, acc: set(acc, ti, acc[ti] + gd[i]) } }
       }
     } else { { out: acc } }
@@ -142,26 +142,26 @@ export unbroadcast := (gd, gsh, tsh) ~> do {
 --- take `(a_elem, b_elem, g_elem)` — then `unbroadcast` back to the
 --- operand's shape. Returns `{a, b}` (the host's `elementwise_backward`).
 elt_bwd := (a, b, g, fa, fb) ~> do {
-  wa :: as_wire(a)
-  wb :: as_wire(b)
-  wg :: as_wire(g)
-  ash :: wa.__tensor__.shape
-  bsh :: wb.__tensor__.shape
-  gsh :: wg.__tensor__.shape
-  osh :: broadcast_shape(ash, bsh)
-  check :: if gsh == osh { true } else {
+  wa := as_wire(a)
+  wb := as_wire(b)
+  wg := as_wire(g)
+  ash := wa.__tensor__.shape
+  bsh := wb.__tensor__.shape
+  gsh := wg.__tensor__.shape
+  osh := broadcast_shape(ash, bsh)
+  check := if gsh == osh { true } else {
     die("elementwise backward: grad_out shape != broadcast output")
   }
-  ad :: bc_data(wa.__tensor__.data, ash, osh)
-  bd :: bc_data(wb.__tensor__.data, bsh, osh)
-  gd :: wg.__tensor__.data
-  n :: product(osh)
-  ga :: while { i: 0, acc: [] } {
+  ad := bc_data(wa.__tensor__.data, ash, osh)
+  bd := bc_data(wb.__tensor__.data, bsh, osh)
+  gd := wg.__tensor__.data
+  n := product(osh)
+  ga := while { i: 0, acc: [] } {
     (i, acc) ~> if i < n {
       { state: { i: i + 1, acc: [...acc, fa(ad[i], bd[i], gd[i])] } }
     } else { { out: acc } }
   }
-  gb :: while { i: 0, acc: [] } {
+  gb := while { i: 0, acc: [] } {
     (i, acc) ~> if i < n {
       { state: { i: i + 1, acc: [...acc, fb(ad[i], bd[i], gd[i])] } }
     } else { { out: acc } }
