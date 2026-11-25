@@ -3,8 +3,8 @@
 ATen port catalog.
 
 Inputs (host-tensor is READ-ONLY reference):
-  ../exec-tensor/tools/aten_schemas.json   — torch._C._jit_get_all_schemas()
-  ../exec-tensor/tools/aten_port_list.txt  — the curated 207-pin list
+  ../lib-tensor-native/tools/aten_schemas.json   — torch._C._jit_get_all_schemas()
+  ../lib-tensor-native/tools/aten_port_list.txt  — the curated 207-pin list
 
 Output (this repo, regenerated in place):
   src/aten/*.hnl        — generated op modules, one per family

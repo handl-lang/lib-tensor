@@ -21,7 +21,7 @@ name = "lib-tensor"
 # package root inside the clone (host-tensor's .hnl surface lives in
 # src/index.hnl). The fetch-on-miss hook clones into the package-cache
 # slot; `[patch]` below dev-links the sibling checkout.
-host-tensor = { git = "https://github.com/handl-lang/exec-tensor", branch = "main", subdir = "src" }
+host-tensor = { git = "https://github.com/handl-lang/lib-tensor-native", branch = "main", subdir = "src" }
 lib-tensor  = { path = "src" }
 ltensor     = { path = "src" }
 # math.* scalar leaves used throughout src/internal/aten.hnl — the
@@ -34,4 +34,4 @@ math-c      = { path = "../lib-math-c/src" }
 # Sibling-checkout dev-link (the handl-lang `~/GitHub/handl-lang/*`
 # convention); inert where the sibling is absent and the git source
 # applies.
-host-tensor = "../exec-tensor/src"
+host-tensor = "../lib-tensor-native/src"
