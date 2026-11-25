@@ -173,7 +173,7 @@ arrow dialect), so the executable path is a host that does. catopt's
 # → [{"name":"zeros","ok":true}, …] — 51 checks, all ok
 ```
 
-`ci.sh` runs `scripts/hnl-gate.sh` (the shared `hnl` typecheck/lint/
+`workflows/gate.yaml` runs the handl-gates campaign (`scripts/hnl-gate.sh` for `.hnl` repos) (the shared `hnl` typecheck/lint/
 test gate); the sources here are all arrow-dialect, so the gate's
 `is_canonical` detector skips them by design — `verify.hnl` is the
 honest executable check until a tensor-composing `hnl test` exists.
