@@ -34,7 +34,7 @@ bit-identical, not just mathematically equal.
 | `verify.hnl` | composed-runtime check of all ops vs the host |
 | `tools/` | `aten_port_gen.py`, `verify_gen.py` generators |
 | `docs/reports/` | verification reports |
-| `pkg.hnl`, `scripts/hnl-gate.sh`, `ci.sh` | manifest / gate / bupha entry |
+| `pkg.hnl`, `scripts/hnl-gate.sh`, `workflows/gate.yaml` | manifest / gate / bupha entry |
 
 ## Contract
 
